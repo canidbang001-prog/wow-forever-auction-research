@@ -1,0 +1,12 @@
+.env
+config.json
+*.db
+*.db-*
+__pycache__/
+demo/
+reports/
+cache/
+research/
+config.forever.json
+config.retail.json
+public-project/

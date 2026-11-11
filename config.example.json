@@ -1,0 +1,25 @@
+{
+  "db_path": "ah.db",
+  "realm_name": "",
+  "realm_ids": [],
+  "auctionator_path": "",
+  "auctionator_realm_key": "",
+  "auctionator_realm_id": null,
+  "game_flavor": "retail",
+  "scan_timezone_offset_hours": 9,
+  "known_recipes": "known_recipes.txt",
+  "item_cache_limit": 300,
+  "analysis": {
+    "min_snapshots": 6,
+    "min_span_hours": 24,
+    "max_age_hours": 3,
+    "max_gap_hours": 6,
+    "min_window_coverage": 0.7,
+    "min_profit_gold": 1,
+    "min_margin": 0.1,
+    "dip_discount": 0.25,
+    "low_quantity": 20,
+    "low_auctions": 5,
+    "volatility_cv": 0.4
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "db_path": "ah_forever.db",
+  "game_flavor": "forever",
+  "realm_name": "",
+  "auctionator_path": "",
+  "auctionator_realm_key": "PvP",
+  "auctionator_realm_id": null,
+  "scan_timezone_offset_hours": 9,
+  "known_recipes": "known_recipes.txt",
+  "static_cache": "cache/static",
+  "static_seed_items": [6328, 4592, 6289, 5482],
+  "character_key": "default"
+}
