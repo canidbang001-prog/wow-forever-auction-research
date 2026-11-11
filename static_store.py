@@ -44,13 +44,15 @@ def enqueue(db, url, provider, kind, entity_id=None, priority=50):
 
 
 def seed(db, item_id, reason, source_url, priority=50):
-    from common import utcnow
+    from common import get_meta, utcnow
     if not isinstance(item_id,int) or item_id<=0:
         raise ValueError('invalid item ID')
     db.execute('INSERT OR IGNORE INTO items(item_id) VALUES (?)',(item_id,))
     db.execute('INSERT OR IGNORE INTO item_seeds VALUES (?,?,?,?)',(item_id,reason,source_url,utcnow()))
     enqueue(db,f'https://www.wowhead.com/forever/ko/item={item_id}&xml','wowhead','item_xml',item_id,priority)
     enqueue(db,f'https://foreverdb.net/item/{item_id}','foreverdb','item',item_id,priority+1)
+    if get_meta(db,'forever_api_enabled'):
+        enqueue(db,f'https://foreverdb.net/api/v1/items/{item_id}','foreverdb_api','api_item',item_id,80)
 
 
 def fact(db, doc, kind, subject_type, subject_id, object_type=None, object_id=None,
@@ -92,4 +94,14 @@ def summary(db):
         lines.append(f"큐 {r['state']}: {r['n']}")
     for r in db.execute('SELECT relation_kind,status,COUNT(*) n FROM static_coverage GROUP BY relation_kind,status'):
         lines.append(f"범위 {r['relation_kind']} / {r['status']}: {r['n']}페이지")
+    for collection, in db.execute('SELECT DISTINCT collection FROM static_api_pages ORDER BY collection'):
+        pages=db.execute('SELECT p.*,d.game_build FROM static_api_pages p JOIN static_documents d ON d.id=p.document_id '
+                         'WHERE collection=? AND d.active=1 ORDER BY page_offset',(collection,)).fetchall()
+        count=0; valid=True
+        for page in pages:
+            valid &= page['page_offset']==count and page['total']==pages[0]['total'] and page['game_build']==pages[0]['game_build']
+            count+=page['observed']
+        total=pages[0]['total'] if pages else 0
+        state='complete' if pages and valid and count==total else 'partial'
+        lines.append(f'API 목록 {collection}: {count}/{total} ({state})')
     return '\n'.join(lines)

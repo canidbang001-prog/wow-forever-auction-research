@@ -26,12 +26,17 @@ Python 3 표준 `sqlite3`로 읽습니다. 기본 파일은 리테일 `ah.db`, F
 | `static_documents` | `id` PK, `url`, `provider`, `game_version` 제품(forever), `game_build` 알려진 빌드/NULL, `fetched_at`, `sha256`, `cache_path`, `http_status` HTTP 상태(0=브라우저 DOM 관측), `verification` 수집 방법, `active` 마지막 성공본 여부. UNIQUE(url,sha256) |
 | `static_queue` | `url` PK, `provider`, `kind` 페이지 형식, `entity_id` 해당 item/quest ID, `priority` 작은 값 우선, `state`, `attempts`, `checked_at`, `retry_at`, `error` 비밀 없는 상태 요약, `document_id` FK |
 | `static_coverage` | PK(url,relation_kind), `url` 큐 FK, `status`, `expected` 사이트 표시 전체 수/NULL, `observed` 현재 페이지에서 읽은 수, `note`, `checked_at`. profession total을 페이지마다 반복하므로 expected 합계 금지 |
+| `static_api_pages` | `url` PK/큐 FK, `document_id` FK, `collection` offset을 뺀 정규화 URL, `page_offset`, `total`, `observed`, `ids` 실제 페이지 ID JSON 배열. 연속 offset·전체 수·빌드로 목록 완주 검사. 한 행 probe와 100행 본수집은 별도 collection |
 | `static_facts` | `id` PK, `document_id` FK, `kind`, `subject_type`, `subject_id` 문자열, `object_type`, `object_id` nullable ID, `label` 원문 이름, `quantity` 확인된 개수/NULL, `verification`, `details` JSON 추가 사실/미확인 이유, `fact_key` 내용 해시. UNIQUE(document_id,fact_key) |
 | `item_seeds` | PK(item_id,reason,source_url), `item_id` FK, `reason` 최초 수집 경로, `source_url`, `discovered_at`. 가격 없는 아이템도 유지 |
 | `recipe_mappings` | `id` PK, `document_id` FK, `recipe_item_id`, `craft_spell_id`, `output_item_id`, `blizzard_recipe_id`, `verification`, `output_qty`. 각각 다른 ID 공간. NULL Blizzard ID를 spell ID로 대체하지 않음 |
 | `character_offer_checks` | PK(offer_id,character_key), `offer_id` FK, `character_key` 사용자 로컬 식별자, `eligibility` unknown/eligible/ineligible, `checked_at`, `note`. 출처의 판매처 검증과 별개 |
 
-`kind`: item_basic(기본정보), vendor_listing(상점 목록의 품목), teaches_spell(도안→주문), craft_output(주문/익명 제작행→결과물), craft_reagent(→재료), quest_requires(퀘스트→요구 품목). `subject_type=recipe_row`의 문자열은 출처 페이지+제작 이름이며 공식 레시피 ID가 아닙니다. `object_id=NULL`인 관계는 이름만 확인되었으므로 ID 결합/원가 계산에 사용하지 않습니다.
+`kind`: item_basic(기본정보), vendor_listing(상점 목록의 품목), vendor_npc(목록에 나온 NPC), craft_recipe(제작 주문의 원문·전문기술), teaches_spell(도안→주문), craft_output(주문/익명 제작행→결과물), craft_reagent(→재료), quest_basic(퀘스트 기본정보), recipe_quest_source(제작법을 얻는 퀘스트), quest_requires(퀘스트→요구 품목). 퀘스트 보상과 요구 품목은 다른 관계입니다. `subject_type=recipe_row`는 SSR 페이지+제작 이름이며 공식 레시피 ID가 아닙니다. API 제작 관계는 `subject_type=spell`입니다. `object_id=NULL`인 관계는 이름만 확인되었으므로 ID 결합/원가 계산에 사용하지 않습니다.
+
+`details.payload`는 API의 실제 엔티티/관계 원문입니다. `item_basic`은 betaEvent/speculation/speculationReasons/dataFromBuild/liveClient 등 제공된 필드를 그대로 보존합니다. `craft_recipe`에는 tools, needsNearby, skill, learnedFrom 등의 원문이 남습니다. craft_output의 min/max는 payload에 남고 랜덤 수량의 quantity/output_qty는 NULL입니다. API 원본 envelope의 `meta.client`는 로컬 캐시에만 있으며 사실 테이블/공개 fixture에 복사하지 않습니다.
+
+`learnedFrom.recipeItemsHidden`에서 실제 확인한 정수 아이템 ID도 초기 목록과 명시적 teaches_spell 매핑으로 보관합니다. `hidden_client_reference`는 클라이언트의 참조만 있고 상세·구매/획득 가능 여부가 숨겨진 상태입니다. 이를 라이브에서 얻을 수 있는 도안으로 취급하지 않습니다. 과거 호환 필드 recipeItemsNotInClient를 중복 합산하지 않습니다.
 
 `current_static_facts`는 사실의 모든 열 + source_url,provider,game_version,game_build,fetched_at을 반환하며 active 문서만 포함합니다. 소스별 중복 관측을 통합하지 않습니다. 같은 매핑을 두 공급자가 읽은 것은 2개 근거이지 2개 제작법이 아닙니다.
 
@@ -45,7 +50,7 @@ Python 3 표준 `sqlite3`로 읽습니다. 기본 파일은 리테일 `ah.db`, F
 | `item_id` | items FK, 동일 품목 여러 행 허용 |
 | `source`, `source_url`, `document_id` | 공급자 또는 csv:출처 / 원본 링크 / 정적 문서 FK |
 | `npc_id`, `npc_name`, `zone` | 출처에서 확인한 NPC ID·이름·지역, 없으면 NULL |
-| `map_id`, `x`, `y` | 지도 ID 및 백분율 좌표. 현재 공개 SSR 파서는 좌표를 제공하지 않음 |
+| `map_id`, `x`, `y` | API에서 확인한 UiMap ID 및 해당 지역 지도 백분율 좌표. SSR은 누락 가능 |
 | `price_copper` | 표시 가격을 동 정수로 정규화. 별도 화폐 환산값 아님 |
 | `gold`, `silver`, `copper` | 표시 금·은·동 구성. 파서가 단위를 확인한 경우만 저장 |
 | `purchase_qty`, `price_basis` | 1회 구매 개수 / per_purchase, displayed_unknown_bundle, legacy_unit_candidate 등. 알 수 없는 묶음을 1로 가정하지 않음 |
@@ -54,17 +59,19 @@ Python 3 표준 `sqlite3`로 읽습니다. 기본 파일은 리테일 `ah.db`, F
 | `currency_costs` | 별도 통화·교환 아이템 JSON 배열. NULL=미확인, []=별도 비용 없음을 직접 확인 |
 | `reputation_required` | 구매 요구 평판 |
 | `reputation_discount_faction` | 가격 할인을 적용하는 평판. 구매 요구와 다름 |
-| `faction` | 출처의 진영 조건/NULL. NPC 반응 A/H를 구매 가능 여부로 바꾸지 않음 |
-| `conditions`, `note` | 원문 조건 JSON / 사람이 읽는 추가 설명 |
+| `faction` | 명시된 구매 진영 조건/NULL. NPC의 side/faction·반응 A/H를 구매 가능 여부로 바꾸지 않음 |
+| `conditions`, `note` | API는 npc_side(소속), offer(가격·통화·재고 원문), npc_seen, source를 보관. 사람이 읽는 추가 설명은 note |
 | `verification` | 아래 출처 검증 상태 |
 | `active` | 수동/출처 행 활성 여부 |
 | `retrieved_at`, `game_version`, `game_build_override` | CSV 등 문서 없는 관측의 조회일·제품·명시적 빌드. 문서가 있으면 문서 provenance 우선 |
 
 `current_vendor_offers`는 vendor_items 모든 열에 game_build,source_fetched_at을 더합니다. 활성 행 및 활성 문서만 포함합니다. 삭제된 판매처는 새 문서가 성공적으로 파싱될 때 이전 문서 비활성화를 통해 최신 뷰에서 제외되며 원본 이력은 유지됩니다.
 
-검증 상태는 `client_catalog`(클라이언트에 존재), `source_reported_live`(사이트가 라이브 목격이라고 표기), `forever_branch_unverified`(Wowhead Forever 분기이나 라이브 빌드 보장 없음), `classic_reference`, `beta_reference`, `unresolved`, `unverified`, `manual_unverified`입니다. `source_reported_live`도 내 캐릭터 구매 가능을 뜻하지 않습니다.
+검증 상태는 `client_catalog`(클라이언트에 존재), `source_reported_live`(해당 판매 행을 사이트가 라이브 목격이라고 표기), `forever_branch_unverified`(Wowhead Forever 분기이나 라이브 빌드 보장 없음), `classic_reference`, `beta_reference`, `speculative`, `older_build_reference`, `not_seen_on_list`(목격한 판매 목록에 없음), `unresolved`, `unverified`, `manual_unverified`입니다. `source_reported_live`도 내 캐릭터 구매 가능을 뜻하지 않습니다. NPC 전체의 목격만으로 개별 판매 행을 확인 처리하지 않습니다.
 
-큐 state는 pending/done/running/retry/blocked/missing/parse_error입니다. coverage status의 unknown/partial/unsupported/truncated/parse_error는 관계 없음이 아닙니다. `page_observed`도 한 페이지 확인이며 전체 관계를 검증했다는 의미가 아닙니다. API schema_review_required는 원본 보관만 되었음을 뜻합니다.
+조회일은 HTTP 응답을 받은 시각이며 NPC를 게임에서 목격한 시각이 아닙니다. API 판매 행에 실제 목격일·구매 요구 평판·완전한 진영 제한이 없으면 NULL/원문 보존으로 남깁니다. `static_documents.game_build`는 응답 메타의 자료 빌드이며 개별 판매처를 그 빌드에서 직접 재검증했다는 뜻이 아닙니다.
+
+큐 state는 pending/done/running/retry/blocked/missing/parse_error입니다. coverage status의 unknown/partial/unsupported/truncated/parse_error는 관계 없음이 아닙니다. `page_observed`도 한 페이지 확인이며 전체 관계를 검증했다는 의미가 아닙니다. API schema_review_required는 미연결 탐색 원본만 보관했음을 뜻합니다. 인증 API 정규화가 성공하면 해당 probe 상태를 제거합니다. `--reparse-cache`는 원본의 fetched_at을 유지합니다.
 
 ## 안전한 조회 예
 
@@ -76,8 +83,8 @@ GROUP BY provider,kind,verification;
 SELECT item_id,npc_id,npc_name,zone,price_copper,purchase_qty,stock_state,
        currency_costs,verification,source_url,game_build,source_fetched_at
 FROM current_vendor_offers WHERE item_id=6328;
-SELECT recipe_item_id,craft_spell_id,output_item_id,blizzard_recipe_id,output_qty,verification
-FROM recipe_mappings;
+SELECT r.recipe_item_id,r.craft_spell_id,r.output_item_id,r.blizzard_recipe_id,r.output_qty,r.verification
+FROM recipe_mappings r JOIN static_documents d ON d.id=r.document_id WHERE d.active=1;
 SELECT label,quantity,object_id,verification,source_url FROM current_static_facts
 WHERE kind='quest_requires';
 SELECT COUNT(*) FROM items i WHERE NOT EXISTS(SELECT 1 FROM prices p WHERE p.item_id=i.item_id);

@@ -24,6 +24,12 @@ CREATE TABLE IF NOT EXISTS static_facts (
  verification TEXT NOT NULL, details TEXT NOT NULL DEFAULT '{}',
  fact_key TEXT NOT NULL, UNIQUE(document_id,fact_key)
 );
+CREATE TABLE IF NOT EXISTS static_api_pages (
+ url TEXT PRIMARY KEY REFERENCES static_queue(url),
+ document_id INTEGER NOT NULL REFERENCES static_documents(id),
+ collection TEXT NOT NULL, page_offset INTEGER NOT NULL,
+ total INTEGER NOT NULL, observed INTEGER NOT NULL, ids TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS static_fact_object ON static_facts(object_type,object_id,kind);
 CREATE TABLE IF NOT EXISTS item_seeds (
  item_id INTEGER NOT NULL REFERENCES items(item_id), reason TEXT NOT NULL,
