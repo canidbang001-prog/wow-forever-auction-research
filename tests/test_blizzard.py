@@ -75,9 +75,11 @@ class ParseTests(unittest.TestCase):
         with self.assertRaises(AppError):
             parse_index({'auctions': None})
 
-    def test_missing_auctions_is_empty_and_bad_shape_errors(self):
-        self.assertEqual(parse_listings({}, 'auction'), ([], 0))
-        self.assertEqual(parse_listings({'auctions': None}, 'commodity'), ([], 0))
+    def test_missing_auctions_is_unknown_and_explicit_empty_array_is_empty(self):
+        self.assertEqual(parse_listings({'auctions': []}, 'auction'), ([], 0))
+        for body in ({}, {'auctions': None}):
+            with self.assertRaises(AppError):
+                parse_listings(body, 'commodity')
         with self.assertRaises(AppError):
             parse_listings(None, 'auction')
         with self.assertRaises(AppError):
@@ -133,16 +135,16 @@ class ParseTests(unittest.TestCase):
 
     def test_sell_through_threshold(self):
         thin = sell_through_estimate(1, 18, 6, 3)
-        self.assertIsNone(thin['sell_through_pct'])
-        self.assertEqual(thin['sell_through_status'], '데이터 부족')
+        self.assertIsNone(thin['disappearance_pct'])
+        self.assertEqual(thin['disappearance_status'], '데이터 부족')
         short_days = sell_through_estimate(5, 20, 6, 2)
-        self.assertEqual(short_days['sell_through_status'], '데이터 부족')
+        self.assertEqual(short_days['disappearance_status'], '데이터 부족')
         met = sell_through_estimate(9, 35, 6, 3)
-        self.assertEqual(met['sell_through_pct'], 20)
-        self.assertEqual(met['sell_through_status'], '추정')
+        self.assertEqual(met['disappearance_pct'], 20)
+        self.assertEqual(met['disappearance_status'], '추정')
         zero = sell_through_estimate(0, 20, 6, 3)
-        self.assertEqual(zero['sell_through_pct'], 0)
-        self.assertEqual(zero['sell_through_status'], '추정')
+        self.assertEqual(zero['disappearance_pct'], 0)
+        self.assertEqual(zero['disappearance_status'], '추정')
 
     def test_hourly_kst_pattern(self):
         self.assertEqual(hourly_pattern([
@@ -329,91 +331,48 @@ class StoreTests(Base):
                 store_snapshot(self.db, house_id, 1, stamp, listings, 0, len(listings), f'A{house_id}-{index}',
                                f'C{house_id}-{index}')
 
-    def test_estimated_disappearance_feeds_planner_without_replacing_auctionator_price(self):
-        times = [
-            '2026-11-10T00:00:00+00:00', '2026-11-10T01:00:00+00:00',
-            '2026-11-11T00:00:00+00:00', '2026-11-11T01:00:00+00:00',
-            '2026-11-12T00:00:00+00:00', '2026-11-12T01:00:00+00:00',
-        ]
+    def test_disappearance_is_activity_only_and_never_fills_sale_probability(self):
+        times = ['2026-11-10T00:00:00+00:00', '2026-11-10T01:00:00+00:00',
+                 '2026-11-11T00:00:00+00:00', '2026-11-11T01:00:00+00:00',
+                 '2026-11-12T00:00:00+00:00', '2026-11-12T01:00:00+00:00']
         self._history(113, times)
         estimate = item_sell_through(self.db, 113, 1, 1)
         self.assertEqual((estimate['disappeared'], estimate['survived'], estimate['classified']), (9, 35, 44))
-        self.assertEqual(estimate['sell_through_pct'], 20)
-        self.assertEqual(estimate['sell_through_status'], '추정')
-        self.assertEqual((estimate['snapshots'], estimate['distinct_days']), (6, 3))
+        self.assertEqual(estimate['disappearance_pct'], 20)
+        self.assertNotIn('sell_through_pct', estimate)
         row = item()
-        summary = attach_blizzard(self.db, dict(self.cfg, blizzard_forever={'house_id': 113}), {1: row}, NOW, None)
-        block = row['blizzard']['houses'][0]
-        self.assertEqual(row['price'], 10000)
-        self.assertEqual(block['sell_through_pct'], 20)
-        self.assertEqual(block['hourly']['status'], '데이터 부족')
-        self.assertEqual(block['liquidity'], 'ok')
-        self.assertEqual(block['distinct_days'], 3)
-        self.assertEqual(block['price_age_seconds'], 7200)
-        self.assertIsNone(summary['match']['house_id'])
-        self.assertIn('Auctionator', summary['match']['note'])
-        result = plan_actions(bundle([row], vendors=[vendor()]), listing(deposit_copper_per_item=100), NOW)
-        action = result['vendors'][0]
-        self.assertEqual(action['sale']['stress_price'], 6399)
-        self.assertEqual((action['expected_deposit_loss'], action['official_net']), (400, 4679))
-        self.assertEqual(action['sell_through_label'], '추정')
-        self.assertFalse(result['sell_through_known'])
-        self.assertEqual(result['sell_through_basis'], '추정')
-        self.assertEqual(result['buy_recommendations'], [action])
-        text = report_of(bundle([row], vendors=[vendor()]), result)
-        self.assertIn('확정 판매가 아닙니다', text)
-        self.assertIn('체결 20% 추정(판매 또는 취소, 확정 판매 아님)', text)
-        self.assertNotIn('공식 순이익: 데이터 부족', text)
-
-    def test_short_history_sell_through_stays_unknown(self):
-        self._history(114, ['2026-11-12T00:00:00+00:00', '2026-11-12T01:00:00+00:00'])
-        estimate = item_sell_through(self.db, 114, 1, 1)
-        self.assertIsNone(estimate['sell_through_pct'])
-        self.assertEqual(estimate['sell_through_status'], '데이터 부족')
-        row = item()
-        row['blizzard'] = {'selected_house_id': 114, 'houses': [{
-            'house_id': 114, 'sell_through_pct': estimate['sell_through_pct'],
-            'sell_through_status': estimate['sell_through_status']}]}
+        attach_blizzard(self.db, dict(self.cfg, blizzard_forever={'house_id': 113}), {1: row}, NOW, None)
+        self.assertEqual(row['blizzard']['houses'][0]['disappearance_pct'], 20)
         result = plan_actions(bundle([row], vendors=[vendor()]), listing(deposit_copper_per_item=100), NOW)
         self.assertIsNone(result['vendors'][0]['official_net'])
+        self.assertIsNone(result['vendors'][0]['expected_deposit_loss'])
+        self.assertEqual(result['buy_recommendations'], [])
         self.assertEqual(result['sell_through_basis'], '데이터 부족')
-        text = report_of(bundle([row], vendors=[vendor()]), result)
-        self.assertIn('공식 순이익: 데이터 부족', text)
 
-    def test_user_rate_overrides_estimate_and_unselected_house_does_not_apply(self):
+    def test_short_history_activity_stays_unknown(self):
+        self._history(114, ['2026-11-12T00:00:00+00:00', '2026-11-12T01:00:00+00:00'])
+        estimate = item_sell_through(self.db, 114, 1, 1)
+        self.assertIsNone(estimate['disappearance_pct'])
+        self.assertEqual(estimate['disappearance_status'], '데이터 부족')
+
+    def test_only_explicit_user_probability_applies_even_with_legacy_stale_estimates(self):
         row = item()
         row['blizzard'] = {'selected_house_id': 113, 'houses': [{
-            'house_id': 113, 'sell_through_pct': 40, 'sell_through_status': '추정',
-            'min_unit_price': 100, 'name': '호드'}]}
-        overridden = plan_actions(bundle([row], vendors=[vendor()]),
-                                  listing(deposit_copper_per_item=100, sell_through_pct=10), NOW)
-        action = overridden['vendors'][0]
-        self.assertEqual((action['expected_deposit_loss'], action['official_net'], action['sell_through_pct']),
-                         (900, 4179, 10))
-        self.assertEqual(action['sell_through_label'], '사용자 설정')
-        self.assertEqual(overridden['sell_through_basis'], '사용자 설정')
-        self.assertTrue(overridden['sell_through_known'])
-        text = report_of(bundle([row], vendors=[vendor()]), overridden)
-        self.assertIn('사용자 설정', text)
-        self.assertNotIn('체결 40% 추정', text)
-        plain = item()
-        plain['blizzard'] = {'selected_house_id': 113, 'houses': [{
-            'house_id': 113, 'sell_through_pct': 40, 'sell_through_status': '추정'}]}
-        direct = plan_actions(bundle([plain], vendors=[vendor()]), listing(deposit_copper_per_item=100), NOW)
-        self.assertEqual(direct['vendors'][0]['official_net'], 4929)
-        self.assertEqual(direct['sell_through_basis'], '추정')
-        idle = item()
-        idle['blizzard'] = {'selected_house_id': None, 'houses': [{
-            'house_id': 113, 'sell_through_pct': 40, 'sell_through_status': '추정'}]}
-        skipped = plan_actions(bundle([idle], vendors=[vendor()]), listing(deposit_copper_per_item=100), NOW)
-        self.assertIsNone(skipped['vendors'][0]['official_net'])
-        self.assertEqual(skipped['sell_through_basis'], '데이터 부족')
-        zero = item()
-        zero['blizzard'] = {'selected_house_id': 113, 'houses': [{
-            'house_id': 113, 'sell_through_pct': 0, 'sell_through_status': '추정'}]}
-        none = plan_actions(bundle([zero], vendors=[vendor()]), listing(deposit_copper_per_item=100), NOW)
-        self.assertIsNone(none['vendors'][0]['official_net'])
-        self.assertEqual(none['vendors'][0]['expected_deposit_loss_status'], '데이터 부족')
+            'house_id': 113, 'sell_through_pct': 100, 'sell_through_status': '추정',
+            'disappearance_pct': 100, 'disappearance_status': '추정',
+            'observed': '2026-10-01T00:00:00+00:00', 'liquidity': '관찰 필요'}]}
+        for pct, loss in [(None, None), (0, None), (10, 900), (100, 0)]:
+            cfg = listing(deposit_copper_per_item=100, sell_through_pct=pct)
+            result = plan_actions(bundle([row], vendors=[vendor()]), cfg, NOW)
+            action = result['vendors'][0]
+            self.assertEqual(action['sell_through_pct'], pct)
+            self.assertEqual(action['expected_deposit_loss'], loss)
+            if pct in (None, 0):
+                self.assertIsNone(action['official_net'])
+                self.assertEqual(result['buy_recommendations'], [])
+            else:
+                self.assertEqual(action['official_net'], 5079-loss)
+                self.assertEqual(action['sell_through_label'], '사용자 설정')
 
     def test_dashboard_keeps_auctionator_price_and_does_not_guess_a_house(self):
         self.db.execute("INSERT INTO realms VALUES (-1, '[\"PvP\"]')")
@@ -431,7 +390,7 @@ class StoreTests(Base):
         house = found['blizzard']['houses'][0]
         self.assertEqual(house['min_unit_price'], 250)
         self.assertEqual(house['hourly']['status'], '데이터 부족')
-        self.assertEqual(house['sell_through_status'], '데이터 부족')
+        self.assertEqual(house['disappearance_status'], '데이터 부족')
         self.assertEqual(house['liquidity'], '관찰 필요')
         self.assertEqual(house['distinct_days'], 1)
         self.assertIsNone(data['blizzard']['match']['house_id'])
@@ -439,7 +398,7 @@ class StoreTests(Base):
         self.assertIsNone(data['metrics']['sales_per_day'])
         self.assertEqual(data['actions']['buy_recommendations'], [])
         text = report_of(data, data['actions'])
-        self.assertIn('체결 추정 데이터 부족', text)
+        self.assertIn('소멸 지표 데이터 부족', text)
         self.assertIn('시간대 데이터 부족', text)
         lines = summary_lines(self.db, self.cfg, -1)
         self.assertTrue(any('추정하지 않습니다' in line for line in lines))
@@ -457,7 +416,7 @@ class StoreTests(Base):
         raw.row_factory = sqlite3.Row
         summary = attach_blizzard(raw, {}, {1: {'id': 1}}, NOW, None)
         self.assertIn('테이블이 없습니다', summary['match']['note'])
-        self.assertEqual(item_sell_through(raw, 113, 1, 1)['sell_through_status'], '데이터 부족')
+        self.assertEqual(item_sell_through(raw, 113, 1, 1)['disappearance_status'], '데이터 부족')
         self.assertTrue(any('테이블이 없습니다' in line for line in summary_lines(raw, {}, None)))
         raw.close()
 
@@ -466,7 +425,7 @@ class StoreTests(Base):
         text = report(self.db, self.cfg, NOW)
         self.assertEqual(text.count('수익 추천 0개'), 3)
         self.assertIn('블리자드 Forever 경매장', text)
-        self.assertIn('수익 추천으로 바꾸지 않습니다', text)
+        self.assertIn('매물 소멸은 판매 확률로 사용하지 않습니다', text)
         self.assertNotIn('config.forever.json', text)
 
 

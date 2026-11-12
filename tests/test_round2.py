@@ -3,6 +3,8 @@ from datetime import timedelta
 from html.parser import HTMLParser
 from pathlib import Path
 import json
+import os
+import shutil
 import subprocess
 import unittest
 
@@ -18,7 +20,7 @@ from tests.test_static import Base
 
 
 ROOT = Path(__file__).resolve().parents[1]
-NODE = '/usr/local/bin/node'
+NODE = os.environ.get('NODE_BINARY') or shutil.which('node')
 
 
 def vendor(**overrides):
@@ -74,10 +76,10 @@ class ListingCostTests(unittest.TestCase):
         self.assertEqual(result['buy_recommendations'], [])
         self.assertFalse(result['sell_through_known'])
         text = report_of(data, result)
-        self.assertIn('공식 순이익: 데이터 부족', text)
+        self.assertIn('가정 순이익: 데이터 부족', text)
         self.assertIn('기대 보증금 손실', text)
         self.assertIn('0으로 빼지 않습니다', text)
-        self.assertIn('데이터 부족', text.split('공식 순이익')[1])
+        self.assertIn('데이터 부족', text.split('가정 순이익')[1])
 
     def test_known_deposit_and_sell_through_compute_expected_loss(self):
         data = bundle([item()], vendors=[vendor()])
@@ -307,12 +309,12 @@ class ConcentrationTests(unittest.TestCase):
         capped = plan_actions(data, known, NOW)
         buy = capped['buy_recommendations'][0]
         self.assertEqual(buy['position_cap_copper'], 2000)
-        self.assertEqual(buy['suggested_units'], 2)
-        self.assertEqual(buy['suggested_qty'], 2)
-        self.assertEqual(buy['capital_required'], 2000)
+        self.assertEqual(buy['suggested_units'], 1)
+        self.assertEqual(buy['suggested_qty'], 1)
+        self.assertEqual(buy['capital_required'], 1000)
         self.assertEqual(buy['official_net'], 4929)
         self.assertEqual(capped['trial_budget_copper'], 50000)
-        self.assertIn('별개', buy['cap_note'])
+        self.assertIn('1묶음/제작 1회', buy['cap_note'])
         tight = dict(known, total_budget_copper=1000)
         blocked = plan_actions(data, tight, NOW)
         self.assertEqual(blocked['vendors'], [])
@@ -455,6 +457,7 @@ console.log('dom-ok');
 
 
 class MarketHtmlSmokeTests(Base):
+    @unittest.skipUnless(NODE, 'Node executable required for JavaScript smoke test')
     def test_synthetic_db_renders_market_html(self):
         self.cfg['auctionator_realm_key'] = 'PvP'
         self.cfg['market_faction'] = 'unknown'

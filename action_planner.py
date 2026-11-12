@@ -51,15 +51,9 @@ def market_settings(cfg):
 
 
 def sell_settings_for_item(settings, item):
-    """A number in config stays the user's. A Blizzard estimate is used only for the selected house."""
+    """Only an explicit scenario supplies sale probability; disappearance is not a sale."""
     if settings.get('sell_through_pct') is not None:
         return settings, '사용자 설정'
-    block = (item or {}).get('blizzard') or {}
-    selected = block.get('selected_house_id')
-    house = next((row for row in block.get('houses') or [] if row.get('house_id') == selected), None)
-    pct = None if house is None else house.get('sell_through_pct')
-    if house and house.get('sell_through_status') == '추정' and type(pct) is int and not isinstance(pct, bool):
-        return dict(settings, sell_through_pct=pct), '추정'
     return settings, '데이터 부족'
 
 
@@ -129,10 +123,21 @@ def sell_scenario(item, now, haircut=20, max_age_days=3):
                cutoff <= datetime.fromisoformat(p['observed']) <= now]
     daily = [p for p in item.get('daily_history', []) if p['low'] is not None and
              cutoff <= datetime.fromisoformat(p['observed']) <= now]
-    reference = min([item['price']] + [p['price'] for p in history] + [p['low'] for p in daily])
+    basis = '최근 7일의 관측 최저가 중 최솟값'
+    if item.get('price_source') == 'blizzard':
+        medians = sorted(p['median'] for p in history if p.get('median'))
+        if not medians:
+            return None
+        recent_median = medians[(len(medians)-1)//2]
+        reference = min(item['price'], recent_median)
+        basis = '현재 최저가와 최근 7일 스냅샷별 수량 가중 중위가의 하위 중위 중 작은 값'
+    else:
+        reference = min([item['price']] + [p['price'] for p in history] + [p['low'] for p in daily])
     price = max(1, reference - 1)
     stress = price * (100-haircut) // 100
     return {'reference': reference, 'price': price, 'stress_price': stress,
+            'source': item.get('price_source', 'auctionator'), 'house_id': item.get('price_house_id'),
+            'basis': basis,
             'haircut_pct': haircut, 'observed': item['observed'],
             'snapshot': item['snapshot'], 'files': len(item['snapshots']),
             'points': len(history), 'days': len({p['observed'] for p in history+daily}),
@@ -190,21 +195,21 @@ def listing_quote(sale, qty, cost, settings):
 
 
 def position_plan(cost, unit_qty, settings):
-    """Trial cash cap and per-item concentration cap stay separate."""
+    """A suggestion is one purchase/craft; both cash limits apply to that same unit."""
     share = settings['max_position_share_pct']
     trial = settings['trial_budget_copper']
     total = settings['total_budget_copper']
     base = {'trial_budget_copper': trial, 'total_budget_copper': total, 'position_share_pct': share,
             'unit_cost': cost, 'unit_qty': unit_qty}
-    if total is None:
-        return dict(base, capital_required=cost, suggested_units=1, suggested_qty=unit_qty,
-                    position_cap_copper=None, cap_status='데이터 부족', excluded=False,
-                    cap_note=f'총예산 미설정. 시험 상한 {trial}동만 적용합니다. 품목 집중 한도 {share}%는 계산하지 않습니다.')
-    cap = total * share // 100
-    units = (cap // cost) if cost > 0 else 0
-    return dict(base, capital_required=cost * units, suggested_units=units, suggested_qty=unit_qty * units,
-                position_cap_copper=cap, cap_status='known', excluded=units < 1,
-                cap_note=f'한 품목 상한은 총예산 {total}동의 {share}% = {cap}동. 시험 상한 {trial}동과는 별개입니다.')
+    cap = total * share // 100 if total is not None else None
+    limit = min(trial, cap) if cap is not None else trial
+    fits = cost > 0 and cost <= limit
+    return dict(base, capital_required=cost if fits else 0, suggested_units=int(fits),
+                suggested_qty=unit_qty if fits else 0, position_cap_copper=cap,
+                cap_status='known' if cap is not None else '데이터 부족', excluded=not fits,
+                cap_note=f'1묶음/제작 1회만 시험. 시험 상한 {trial}동 · 품목 집중 한도 '
+                         + (f'{cap}동. 둘 중 작은 한도 {limit}동 적용.' if cap is not None
+                            else '총예산 미설정으로 미확인. 시험 상한만 적용.'))
 
 
 def trial_math(cost, qty, scenario, target_margin=20):
@@ -378,7 +383,7 @@ def plan_actions(data, cfg, now=None):
             continue
         plan = _apply_money(calc, scenario, v['qty'], settings, liq, item)
         if calc['official_net'] is not None and calc['official_net'] <= 0:
-            watch.append(_watch('vendor', v['item'], liq, '공식 순이익이 0 이하입니다. 매수 추천에서 뺍니다.',
+            watch.append(_watch('vendor', v['item'], liq, '가정 순이익이 0 이하입니다. 매수 추천에서 뺍니다.',
                                 offer_id=v['id'], status='순이익 없음'))
             continue
         if plan['excluded']:
@@ -428,7 +433,7 @@ def plan_actions(data, cfg, now=None):
             continue
         plan = _apply_money(calc, scenario, c['qty'], settings, liq, item)
         if calc['official_net'] is not None and calc['official_net'] <= 0:
-            watch.append(_watch('craft', c['item'], liq, '공식 순이익이 0 이하입니다. 매수 추천에서 뺍니다.',
+            watch.append(_watch('craft', c['item'], liq, '가정 순이익이 0 이하입니다. 매수 추천에서 뺍니다.',
                                 spell=c['spell'], status='순이익 없음'))
             continue
         if plan['excluded']:
@@ -509,11 +514,8 @@ def plan_actions(data, cfg, now=None):
     shown = crafts[:20]
     deposit_known = settings['deposit_rate_pct'] is not None or settings['deposit_copper_per_item'] is not None
     sell_known = settings['sell_through_pct'] not in (None, 0) and deposit_known
-    any_estimate = any(row.get('sell_through_label') == '추정' for row in vendors + shown)
     if sell_known:
         basis = '사용자 설정'
-    elif any_estimate:
-        basis = '추정'
     else:
         basis = '데이터 부족'
     return {'vendors': vendors, 'crafts': shown, 'craft_pool': crafts, 'farms': farms,
@@ -548,20 +550,16 @@ def action_report(data):
     actions = data['actions']
     buys = actions.get('buy_recommendations') or []
     basis = actions.get('sell_through_basis') or ('사용자 설정' if actions.get('sell_through_known') else '데이터 부족')
-    if basis == '추정':
-        official = ('공식 순이익에 쓴 체결 확률은 블리자드 스냅샷 추정입니다. '
-                    '만료 전에 사라진 매물(판매 또는 취소)이며 확정 판매가 아닙니다. '
-                    '0%이거나 보증금이 없으면 그 칸은 데이터 부족입니다.')
-    elif not actions.get('sell_through_known'):
-        official = '공식 순이익: 데이터 부족. 아래는 조건부 시험입니다. 보증금 기대 손실을 0으로 빼지 않습니다.'
+    if not actions.get('sell_through_known'):
+        official = '가정 순이익: 데이터 부족. 아래는 조건부 시험입니다. 보증금 기대 손실을 0으로 빼지 않습니다.'
     elif not buys:
-        official = '공식 순이익을 계산할 설정은 있습니다. 조건을 통과한 매수 추천은 없습니다. 기대 손실을 0으로 채우지 않습니다.'
+        official = '가정 순이익을 계산할 설정은 있습니다. 조건을 통과한 매수 추천은 없습니다. 기대 손실을 0으로 채우지 않습니다.'
     else:
-        official = f"공식 순이익 후보 {len(buys)}개. floor(스트레스 판매가×수량×0.95)−구매비용−기대 보증금 손실. 체결 확률은 사용자 설정이며 측정값이 아닙니다."
+        official = f"가정 순이익 후보 {len(buys)}개. floor(스트레스 판매가×수량×0.95)−구매비용−기대 보증금 손실. 체결 확률은 사용자 설정이며 측정값이 아닙니다."
     out = ['# 한국 PvP 행동 후보', '', f"생성: {data['generated']} · 진영: {data['market']['faction']}", '',
            official,
            actions.get('listing_model', ''),
-           '등록 가정은 최근 7일의 마지막 최저가 기록과 일별 최저가 중 가장 낮은 값에서 1동 차감. 중위가·체결가가 아닙니다.',
+           '등록 가정: 확인한 공식 시장은 현재 최저가와 최근 7일 스냅샷별 수량 가중 중위가의 하위 중위 중 낮은 값. Auctionator는 최근 7일 관측 최저가 중 최솟값. 각각 1동 차감하며 체결가가 아닙니다.',
            f"수수료 5%는 판매 대금에 한 번. 가격 {actions.get('haircut_pct', 20)}% 하락 시에도 원가 대비 차액 20%가 남는지 검사합니다. 하락률은 설정값이며 예측 확률이 아닙니다.",
            f"시험 상한 {actions.get('trial_budget_copper', actions.get('budget'))}동. 총예산이 없으면 품목 집중 한도는 데이터 부족이고 시험 상한만 적용합니다.",
            f"관측일이 {actions.get('min_distinct_days', 3)}일보다 적거나 최근 가격이 {actions.get('max_price_age_days', 3)}일보다 오래되면 관찰 필요이며 매수 추천에서 뺍니다.",
@@ -571,7 +569,7 @@ def action_report(data):
         out.append('')
     for key, title in [('vendors', '상점 구매 후 시험 판매'), ('crafts', '배운 제작법으로 1회 시험')]:
         out += ['## '+title, '',
-                '| 아이템 | 살 것 → 행동 | 구매 비용 | 수수료 5% | 보증금 | 기대 보증금 손실 | 보증금 제외 순이익 | 공식 순이익 | 제안 수량 | 필요 자금 | 관측일 | 최신 가격 | 근거 / 확인할 것 |',
+                '| 아이템 | 살 것 → 행동 | 구매 비용 | 수수료 5% | 보증금 | 기대 보증금 손실 | 보증금 제외 순이익 | 가정 순이익 | 제안 수량 | 필요 자금 | 관측일 | 최신 가격 | 근거 / 확인할 것 |',
                 '|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|']
         for a in data['actions'][key]:
             if key == 'vendors':
@@ -584,7 +582,7 @@ def action_report(data):
                 step += f" 구매 → spell:{c['spell']} 1회 제작 → {c['qty']}개 등록"
                 source = c
             s = a['sale']
-            proof = (f"#{s['snapshot']}, {s['files']}가격파일/{s['days']}개 7일 기록, 서로 다른 관측일 {s.get('distinct_days')}일, "
+            proof = (f"{s.get('source','auctionator')} 경매장 {s.get('house_id')}, #{s['snapshot']}, {s['files']}스냅샷/{s['days']}개 7일 기록, 서로 다른 관측일 {s.get('distinct_days')}일, "
                      f"일별 {s['daily_points']}행/파일근거 {s['daily_imports']}, 관측 {s['observed']}; "
                      f"{a.get('cap_note','')}; {source['url']}; 빌드 {source['build']}; 조회 {source['date']}; "
                      + ', '.join(a['checks'])
@@ -647,8 +645,8 @@ def action_report(data):
                     str(f['units_for_10g'])+'개 획득·판매',
                     f"#{f['sale']['snapshot']} / {f['sale']['observed']}; 관측일 {f.get('distinct_days')} · 최신 {age(f.get('price_age_seconds'))}; 제작 용도 {i['craft_uses']}개 (판매량 아님); 획득처·시간당 수량 미확인"]))+' |')
     out += ['', '## 블리자드 Forever 경매장', '',
-            'Auctionator 최저가와 별도입니다. 선택한 경매장 번호가 없으면 체결 추정은 공식 순이익에 넣지 않습니다.',
-            '시간대는 한국 시간입니다. 스냅샷이 모자라면 시간대와 체결 추정은 데이터 부족입니다.',
+            '내 시장으로 확인한 경매장의 가격만 계산에 연결합니다. 소멸 비율은 판매 확률에 넣지 않습니다.',
+            '시간대는 한국 시간입니다. 스냅샷이 모자라면 시간대와 소멸 지표는 데이터 부족입니다.',
             '만료 전에 사라진 매물은 판매 또는 취소의 추정입니다. 확정 판매가 아닙니다.']
     info = data.get('blizzard') or {}
     if info.get('note'):
@@ -656,7 +654,7 @@ def action_report(data):
     if (info.get('match') or {}).get('note'):
         out.append(info['match']['note'])
     selected = info.get('selected_house_id')
-    out.append('계산에 쓰는 경매장: ' + (str(selected) if selected else '없음'))
+    out.append(info.get('price_note', '공식 시장 가격 미확인. Auctionator 관측 유지.'))
     shown_rows = 0
     for item in data.get('items') or []:
         for house in (item.get('blizzard') or {}).get('houses') or []:
@@ -668,10 +666,10 @@ def action_report(data):
                          f"비싼 시각 {', '.join(map(str, hourly.get('expensive_hours_kst') or []))}시 (추정)")
             else:
                 hours = '시간대 데이터 부족'
-            if house.get('sell_through_status') == '추정':
-                sold = f"소멸 추정 {house.get('sell_through_pct')}%"
+            if house.get('disappearance_status') == '추정':
+                sold = f"소멸 추정 {house.get('disappearance_pct')}%"
             else:
-                sold = '체결 추정 데이터 부족'
+                sold = '소멸 지표 데이터 부족'
             out.append(f"- {item.get('name') or item.get('id')} · 경매장 {house.get('house_id')}: "
                        f"최저 {gold(house['min_unit_price']) if house.get('min_unit_price') else '데이터 부족'}, "
                        f"관측일 {house.get('distinct_days')}, 최신 {age(house.get('price_age_seconds'))}, "

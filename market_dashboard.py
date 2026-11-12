@@ -34,10 +34,10 @@ def craft_cost(reagents, items, offers, build):
     for reagent in reagents:
         iid, qty = reagent['id'], reagent['qty']
         options = []
-        price = items.get(iid, {}).get('price')
-        if price is not None:
-            options.append({'cost': price * qty, 'buy_qty': qty, 'method': 'auction',
-                            'offer_id': None})
+        from market_quotes import purchase_quote
+        quote = purchase_quote(items.get(iid), qty)
+        if quote is not None:
+            options.append(quote)
         for offer in offers.get(iid, []):
             option = vendor_purchase(offer, qty, build)
             if option is not None:
@@ -56,9 +56,10 @@ def build_market(db, cfg, now=None):
     if get_meta(db, 'game_flavor') != 'forever':
         raise AppError('이 화면은 Forever DB 전용입니다. 리테일 DB와 합치지 않습니다.')
     rid = get_meta(db, 'auctionator_local_realm_id')
-    if rid is None:
+    from blizzard_collector import forever_settings
+    if rid is None and not forever_settings(cfg)['market_confirmed']:
         raise AppError('Auctionator 가격을 먼저 수입하세요.')
-    rid = int(rid)
+    rid = int(rid) if rid is not None else None
     build = get_meta(db, 'foreverdb_api_build') or get_meta(db, 'foreverdb_build')
     snapshots = [dict(r) for r in db.execute(
         "SELECT id,fetched_at FROM snapshots WHERE source='auctionator' AND realm_id=? ORDER BY fetched_at,id", (rid,))]
@@ -95,6 +96,10 @@ def build_market(db, cfg, now=None):
     coverage.update(latest_prices=sum(i['price'] is not None for i in items.values()),
                     stored_price_rows=sum(len(i['snapshots']) for i in items.values()),
                     static_items=len(items), snapshots=len(snapshots))
+    from blizzard_collector import attach_blizzard
+    from market_quotes import activate_quotes
+    blizzard = attach_blizzard(db, cfg, items, now, rid)
+    activate_quotes(db, cfg, items, blizzard, now)
     from action_planner import canon_side
     offers, by_item, seen = [], defaultdict(list), set()
     rows = db.execute('''SELECT v.*,c.eligibility FROM current_vendor_offers v
@@ -189,8 +194,6 @@ def build_market(db, cfg, now=None):
             if reagent['id'] in items:
                 items[reagent['id']]['craft_uses'] += 1
 
-    from blizzard_collector import attach_blizzard
-    blizzard = attach_blizzard(db, cfg, items, now, rid)
     data = {'generated': now.isoformat(timespec='seconds'), 'build': build,
             'mode': get_meta(db, 'data_mode'), 'market': {'region': cfg.get('market_region', 'unknown'),
             'ruleset': cfg.get('market_ruleset', cfg.get('auctionator_realm_key', '')),
@@ -241,7 +244,8 @@ def main():
     costed = sum(c['cost'] is not None for c in data['crafts'])
     print(f'시장 화면: {output.resolve()}')
     print(f'실제 가격 {priced:,}개 / 정적 품목 {len(data["items"]):,}개 / 원가 계산 가능한 제작 {costed:,}개')
-    print('가중 중위가·판매량: 데이터 부족. 가정 차액은 수익 추천이 아닙니다.')
+    print(data['blizzard']['price_note'])
+    print('실제 판매량: 데이터 부족. 소멸률을 판매 확률로 쓰지 않습니다.')
 
 
 if __name__ == '__main__':
