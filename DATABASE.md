@@ -93,3 +93,39 @@ PRAGMA foreign_key_check;
 ```
 
 sqlite3 CLI가 없으면 `python -m sqlite3 ah_forever.db "SELECT COUNT(*) FROM prices;"`를 사용합니다. 테스트 DB는 `meta.data_mode=fixture`, 실제 수집 DB는 live이며 서로 혼합할 수 없습니다. 캐시 원본은 수집 증거이고 외부 명령/실행할 코드가 아닙니다.
+
+## 로컬 시장 화면 (market_dashboard.py)
+
+`config.character_professions.primary/secondary`는 기본 기술 선택과 숙련 정수 또는 `null`을 담습니다. UI 비교 선택은 별도의 localStorage이며 SQLite의 캐릭터 검증 사실을 변경하지 않습니다. `profession_profile.py`와 `action_planner.py`에서 만드는 기술별 후보·가공 비교는 조회 시 계산한 결과이고 별도 실매출 테이블이 아닙니다. `skill.orangeSource=classic`은 참고값으로만 보존하며 클라이언트 근거가 있는 숙련과 구분합니다. API `requiredLevel`은 제작자 학습 레벨인지 문서화되지 않아 캐릭터 필터로 쓰지 않습니다.
+
+DB를 SQLite `mode=ro`로 읽어 `reports/market.html`을 생성합니다. 별도 시세 테이블이나 합성 관측을 만들지 않습니다. `latest_prices`와 해당 `source=auctionator`, 로컬 `realm_id`의 과거 `prices`를 사용합니다. 화면의 `history`는 `(observed_at,min_price)`가 동일한 연속 관측을 합친 표시용 자료입니다. 원본 스냅샷은 보존합니다.
+
+제작 관계는 동일 `document_id`와 craft spell ID로 결합합니다. `character_offer_checks.eligibility`가 미확인인 상점가는 자동 제작 원가에 반영하지 않습니다. 화면의 가정 차액은 DB의 실현 수익 또는 추천 결과가 아니며 가격/수량 가정을 사용한 계산입니다. 상세 기준은 [MARKET.md](MARKET.md)를 참조하세요.
+
+
+## Auctionator 일별 이력과 수입 근거
+
+`prices`와 `snapshots`의 의미는 그대로 유지합니다. `m`이 같고 과거 `l/h/a`만 바뀌면 새 가격 스냅샷을 만들지 않습니다.
+
+| 테이블 | 열 / 의미 |
+|---|---|
+| `auctionator_imports` | `id` PK; `realm_id` 로컬 시장; `snapshot_id` 마지막 가격 내용에 대응하는 기존/새 스냅샷; `fetched_at` 파일 해석 UTC; `file_mtime_ns` 원본 파일 mtime; `content_sha256` 선택 시장 전체 내용 해시; `parser_version`; `latest_count`, `daily_count`, `skipped_count`. UNIQUE(realm_id,content_sha256,parser_version) |
+| `auctionator_daily` | PK(import_id,item_id,scan_day); `observed_at` 설정 시간대의 관측일 00:00을 UTC로 변환; `low_price` 하루 관측한 최저가들 중 최솟값; `high_price` 그 최댓값; `max_quantity` 하루 최대 관측 수량. 가격은 동 정수; 미제공 값은 NULL |
+
+실제 설치된 Auctionator `Source/Database/Mixin.lua`의 `GetPriceHistory`를 확인했습니다. 일별 low는 `l[day]`가 없으면 `h[day]`, high는 `h[day]`, 수량은 `a[day]`입니다. `a`는 판매량·현재 매물량이 아니며 수량 감소를 체결량으로 쓰지 않습니다. 표의 범위도 전체 매물의 최소/최대가가 아니라 그날 여러 번 기록한 **최저가의 범위**입니다.
+
+업그레이드 최초 실행은 파서 버전 표시가 없으면 mtime이 같아도 1회 재해석합니다. 다음부터 mtime이 같으면 파일 읽기를 생략합니다. 같은 내용은 파일 근거도 중복 제외하며, 과거 이력만 변경되면 가격 스냅샷은 그대로 두고 새 파일 근거를 저장합니다. 실패한 파싱은 기존 자료를 삭제하지 않습니다. 가격이 없는 수량 전용 날짜도 NULL 가격으로 보관합니다. 다른 시장·변형 ID를 기본 item ID로 합치지 않습니다.
+
+```sql
+-- 시장별, 품목별, 날짜별 마지막으로 파일에서 확인한 일별 기록
+WITH ranked AS (
+ SELECT d.*,f.realm_id,f.fetched_at,
+        ROW_NUMBER() OVER(PARTITION BY f.realm_id,d.item_id,d.scan_day
+                          ORDER BY f.fetched_at DESC,f.id DESC) AS rank
+ FROM auctionator_daily d JOIN auctionator_imports f ON f.id=d.import_id
+)
+SELECT item_id,observed_at,low_price,high_price,max_quantity,import_id
+FROM ranked WHERE rank=1 AND realm_id=-1 ORDER BY item_id,scan_day;
+```
+
+`market_history.py`는 이 기록을 전부 화면에 포함하고 최근 7일/30일 내 실제 관측 범위와 관측일 수를 표시합니다. 기간 전체가 관측됐다는 뜻은 아닙니다. 조건부 시험 판매 계산의 기준은 최근 7일의 m 기록과 일별 low 중 최솟값입니다. 가중 중위가·실제 판매가로 승격하지 않습니다.
