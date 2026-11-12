@@ -58,7 +58,7 @@ class ProfessionTests(unittest.TestCase):
         self.assertIsNone(process_comparison(craft, 1, items, NOW))
 
     def test_secondary_candidates_survive_general_top20_and_catalog(self):
-        data = dict(items=[dict(item(100000), history=[])], market={'faction': 'horde'},
+        data = dict(items=[item(100000)], market={'faction': 'horde'},
                     build='new', vendors=[], crafts=[])
         for spell in range(23):
             profession = 'tailoring' if spell < 21 else 'cooking' if spell == 21 else 'engineering'

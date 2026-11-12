@@ -127,6 +127,8 @@ def build_market(db, cfg, now=None):
 
     known = known_spells(cfg)
     profile = character_profile(cfg)
+    from action_planner import market_settings, sell_scenario
+    tuned = market_settings(cfg)
     crafts, spells = [], set()
     # Each recipe's reagents and outputs come from the SAME document, never a cross-build union.
     facts = defaultdict(list)
@@ -163,11 +165,16 @@ def build_market(db, cfg, now=None):
         qty = output['quantity'] if output else None
         price = items.get(iid, {}).get('price')
         margin = price * qty * 95 // 100 - cost if price is not None and qty and cost is not None else None
+        # Last-min margin is not the 20% stress test. Stress is a separate labeled figure.
+        scenario = sell_scenario(items.get(iid), now, tuned['haircut_pct'], tuned['max_price_age_days']) if iid else None
+        stress_margin = scenario['stress_price'] * qty * 95 // 100 - cost if scenario and qty and cost is not None else None
         makes = payload.get('makes') or {}
         skill = payload.get('skill') or {}
         crafts.append({'spell': spell, 'name': r['label'], 'profession': details.get('profession'),
                        'item': iid, 'qty': qty, 'yield_min': makes.get('min'), 'yield_max': makes.get('max'),
-                       'price': price, 'cost': cost, 'margin': margin, 'materials': shopping, 'missing': missing,
+                       'price': price, 'cost': cost, 'margin': margin, 'stress_margin': stress_margin,
+                       'stress_price': scenario['stress_price'] if scenario else None,
+                       'margin_basis': 'last_min_price', 'materials': shopping, 'missing': missing,
                        'complete': complete, 'known': known is not None, 'url': r['source_url'],
                        'build': r['game_build'], 'date': r['fetched_at'], 'verification': r['verification'],
                        'skill': skill.get('orange') if skill.get('orangeSource') == 'client' else None,

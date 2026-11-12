@@ -53,7 +53,7 @@ ForeverDB / Wowhead ─ 정적 근거 ─┘           출처 · 빌드 · 조�
 
 ## 빠른 시작
 
-Python **3.10 이상**, 표준 라이브러리만 사용합니다. 테스트는 저장소의 `tests/`에서 바로 실행합니다. `source.zip`은 예전 스냅샷이라 현재 소스와 어긋날 수 있습니다.
+Python **3.10 이상**, 표준 라이브러리만 사용합니다. 테스트는 저장소의 `tests/`에 있습니다. `python3 -m unittest discover -s tests`로 바로 실행합니다. `source.zip`은 저장소보다 낡은 스냅샷입니다. 다시 만드는 스크립트는 없고, 압축을 풀어 현재 소스나 `tests/`를 대체하지 않습니다.
 
 ```powershell
 Copy-Item config.forever.example.json config.forever.json
@@ -135,7 +135,7 @@ CSV 보강: `python import_vendors.py --config config.forever.json vendor_offers
 
 현재 Forever 입력인 Auctionator `m`은 마지막 최저가이며 `a`는 하루 최대 수량입니다. **가중 중위가·현재 수량·경매 수가 없으므로 Forever 리포트는 조사표와 데이터 부족 사유를 보여주며 수익 추천을 생성하지 않습니다.** 제작·퀘스트 용도는 수요 근거이며 판매량으로 환산하지 않습니다.
 
-구매 묶음·재료 ID/수량·결과 수량이 확인되어야 원가를 계산할 수 있습니다. Blizzard recipe ID, craft spell ID, 도안 item ID, 결과물 item ID는 별도 열입니다. 리테일 `known_recipes.txt`는 Blizzard recipe ID 목록, Forever 조사표는 `spell:` 목록으로 필터합니다. 수익 추천은 필요한 시세 통계가 추가로 필요합니다. 보증금 손실·이동·재등록 비용은 별도입니다.
+구매 묶음·재료 ID/수량·결과 수량이 확인되어야 원가를 계산할 수 있습니다. Blizzard recipe ID, craft spell ID, 도안 item ID, 결과물 item ID는 별도 열입니다. 리테일 `known_recipes.txt`는 Blizzard recipe ID 목록, Forever 조사표는 `spell:` 목록으로 필터합니다. 수익 추천은 필요한 시세 통계가 추가로 필요합니다. 오늘 할 일의 공식 순이익은 보증금 조건과 체결 확률을 설정에 모두 적은 경우에만 기대 보증금 손실을 뺍니다. 하나라도 없으면 그 칸은 데이터 부족이며 0으로 빼지 않습니다. 이 식은 Forever 보증금 공식이 아닙니다. 이동·학습 비용은 계속 별도입니다. 기본값과 키 이름은 `config.forever.example.json`과 [MARKET.md](MARKET.md)에 있습니다.
 
 ## 파일 구성과 검증
 

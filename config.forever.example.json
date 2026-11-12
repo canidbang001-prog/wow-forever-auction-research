@@ -22,5 +22,16 @@
   "character_professions": {
     "primary": {},
     "secondary": {}
+  },
+  "stress_haircut_pct": 20,
+  "min_distinct_days": 3,
+  "max_price_age_days": 3,
+  "trial_budget_copper": 50000,
+  "total_budget_copper": null,
+  "max_position_share_pct": 20,
+  "listing_cost": {
+    "deposit_rate_pct": null,
+    "deposit_copper_per_item": null,
+    "sell_through_pct": null
   }
 }

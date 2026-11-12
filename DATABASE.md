@@ -96,7 +96,7 @@ sqlite3 CLI가 없으면 `python -m sqlite3 ah_forever.db "SELECT COUNT(*) FROM 
 
 ## 로컬 시장 화면 (market_dashboard.py)
 
-`config.character_professions.primary/secondary`는 기본 기술 선택과 숙련 정수 또는 `null`을 담습니다. UI 비교 선택은 별도의 localStorage이며 SQLite의 캐릭터 검증 사실을 변경하지 않습니다. `profession_profile.py`와 `action_planner.py`에서 만드는 기술별 후보·가공 비교는 조회 시 계산한 결과이고 별도 실매출 테이블이 아닙니다. `skill.orangeSource=classic`은 참고값으로만 보존하며 클라이언트 근거가 있는 숙련과 구분합니다. API `requiredLevel`은 제작자 학습 레벨인지 문서화되지 않아 캐릭터 필터로 쓰지 않습니다.
+`config.character_professions.primary/secondary`는 기본 기술 선택과 숙련 정수 또는 `null`을 담습니다. UI 비교 선택은 별도의 localStorage이며 SQLite의 캐릭터 검증 사실을 변경하지 않습니다. `stress_haircut_pct`(기본 20), `min_distinct_days`(기본 3), `max_price_age_days`(기본 3), `trial_budget_copper`(기본 50000), `total_budget_copper`(기본 null), `max_position_share_pct`(기본 20), `listing_cost.deposit_rate_pct`, `listing_cost.deposit_copper_per_item`, `listing_cost.sell_through_pct`(셋 다 기본 null)는 SQLite 열이 아닙니다. 조회할 때 `action_planner.market_settings`가 읽습니다. null인 보증금·체결 확률은 기대 손실 0이 아니라 데이터 부족입니다. 예시 파일의 `market_faction`은 `unknown`, 전문기술은 빈 객체로 둡니다. `profession_profile.py`와 `action_planner.py`에서 만드는 기술별 후보·가공 비교는 조회 시 계산한 결과이고 별도 실매출 테이블이 아닙니다. `skill.orangeSource=classic`은 참고값으로만 보존하며 클라이언트 근거가 있는 숙련과 구분합니다. API `requiredLevel`은 제작자 학습 레벨인지 문서화되지 않아 캐릭터 필터로 쓰지 않습니다.
 
 DB를 SQLite `mode=ro`로 읽어 `reports/market.html`을 생성합니다. 별도 시세 테이블이나 합성 관측을 만들지 않습니다. `latest_prices`와 해당 `source=auctionator`, 로컬 `realm_id`의 과거 `prices`를 사용합니다. 화면의 `history`는 `(observed_at,min_price)`가 동일한 연속 관측을 합친 표시용 자료입니다. 원본 스냅샷은 보존합니다.
 

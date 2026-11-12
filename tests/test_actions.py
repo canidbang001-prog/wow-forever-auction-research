@@ -17,7 +17,8 @@ NOW = datetime(2026,11,12,3,tzinfo=timezone.utc)
 def item(price=10000):
     return dict(id=1,name='Synthetic Item',price=price,observed='2026-11-11T15:00:00+00:00',
                 snapshot=2,snapshots=[1,2],binding=None,category='Trade Goods',subclass='Herb',craft_uses=3,
-                history=[dict(price=8000,observed='2026-11-10T15:00:00+00:00'),
+                history=[dict(price=12000,observed='2026-11-09T15:00:00+00:00'),
+                         dict(price=8000,observed='2026-11-10T15:00:00+00:00'),
                          dict(price=price,observed='2026-11-11T15:00:00+00:00')])
 
 
