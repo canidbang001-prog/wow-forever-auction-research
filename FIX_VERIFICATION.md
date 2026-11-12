@@ -36,14 +36,27 @@
 
 최신 가격 근거는 스냅샷 #3, 관측일 `2026-11-11T15:00:00+00:00`(한국 시간 11월 12일)입니다. 일일 최대 수량은 현재 재고·판매량이 아닙니다. 실제 화면에서 반영 범위, 전문기술 선택, 오늘 할 일의 데이터 부족과 관찰 필요 표시를 확인했습니다. 보수적 조건을 완화해 추천을 만들지 않았습니다.
 
-## 실제 API 검증의 한계
+## 실제 Blizzard API 수집 (2026-11-12 후속 검증)
 
-Blizzard 라이브 수집기를 실행했지만 `BNET_CLIENT_ID` / `BNET_CLIENT_SECRET`이 없어 네트워크 인증 전에 종료되었습니다. 실제 Blizzard 스냅샷은 **0개**입니다. 보유한 ForeverDB 키로 이 인증을 대신하지 않았습니다.
+Battle.net OAuth 인증 후 실제 `dynamic-forever-kr` 응답을 수집했습니다. 인증값·토큰은 출력, DB, 공개 파일에 포함하지 않았습니다. 앞선 키 부재 상태를 이 결과로 갱신합니다. 공개 리테일·클래식 문서에서 Forever 경로를 찾지 못했지만 아래 경로는 실제 성공 응답으로 확인했습니다.
 
-2026-11-12 실제 공개 문서를 확인했습니다:
+- `https://kr.api.blizzard.com/data/wow/ruleset/1?namespace=dynamic-forever-kr&locale=ko_KR`: `id=1`, `name=PvP`, `status.type=UP`.
+- `/data/wow/ruleset/1/auctions/index`: 색인 15개, 기본 수집 대상 호드·검은바다 10개.
+- `/data/wow/ruleset/1/auctions/{id}` 및 응답이 제공한 `/commodities` 경로: 아래 4개 경매장에서 매물 배열 수집. 모든 요청은 위 KR 호스트·Forever 네임스페이스를 사용했습니다.
 
-- [리테일 API](https://community.developer.battle.net/documentation/world-of-warcraft/game-data-apis): 연결 서버 경매 및 지역 재료 경로 표시.
-- [클래식 API](https://community.developer.battle.net/documentation/world-of-warcraft-classic/game-data-apis): 연결 서버별 경매장 색인·경매 경로 표시.
-- [클래식 네임스페이스](https://community.developer.battle.net/documentation/world-of-warcraft-classic/guides/namespaces): Era·Progression·Anniversary 목록 표시.
+| 경매장 ID | API 이름 | 일반 경매 원본 수 | 재료 경매 원본 수 | 가격 있는 저장 매물 |
+|---|---|---:|---:|---:|
+|113|호드 경매장|26,979|27,024|54,001|
+|114|호드 경매장|2,105|2,796|4,901|
+|116|검은바다 경매장|1,198|3,920|5,118|
+|117|검은바다 경매장|75|217|292|
 
-이 문서에서 기존 코드의 `dynamic-forever-kr` 및 `/data/wow/ruleset/...` 경로는 확인하지 못했습니다. 따라서 수집 경로·실제 응답 필드·KR PvP 호드 경매장 ID는 아직 실응답 미검증입니다. 합성 테스트 통과를 API 지원 확인으로 주장하지 않습니다. 키 발급과 실제 응답 검증 후에만 해당 시장을 활성화해야 합니다.
+최초 조회 `2026-11-12T13:36:02+00:00`: `blizzard_snapshots` **4개**, `blizzard_listings` **64,312개**, `blizzard_item_prices` **5,409행**. 일반 경매 2건은 양수 즉시구매 단가가 없어 제외됐습니다. 113의 Last-Modified는 일반 `2026-11-12 12:41:43 GMT`, 재료 `12:41:45 GMT`였으며 나머지 3곳은 두 응답 모두 `12:41:42 GMT`였습니다. 조회 시간과 실제 데이터 기준 시간을 구분합니다.
+
+실제 API 샘플 (동 단위): 113의 item 4314는 buyout 400, quantity 1, time_left MEDIUM; item 22250은 buyout 1,300, quantity 1, time_left LONG. 114의 item 22250은 buyout 6,500, quantity 1로 다른 가격을 반환했습니다. 합성 fixture 수치가 아닙니다.
+
+115·118·120·121·124·125는 일반 응답에 메타데이터만 있고 `auctions`가 없었으며, 재료 응답도 `_links`만 있었습니다. 빈 배열이 아니므로 **데이터 미제공/파싱 실패**로 남겼습니다. 0개 매물이나 전부 소멸로 저장하지 않았고 첫 전체 실행은 부분 실패 종료했습니다.
+
+`python blizzard_collector.py --config config.forever.json --houses 113,114,116,117`로 재조회했을 때 Last-Modified가 같아 스냅샷 4개를 모두 생략했습니다. 스냅샷 수는 4개 그대로이고 `blizzard_checks`는 8개(저장 4, 중복 생략 4)입니다. 이 검증은 실제 API 응답을 사용했습니다.
+
+KR·Forever·PvP·호드 이름까지 확인됐지만, 113과 114 등 동일한 호드 이름을 구분하는 서버 정보는 응답에 없습니다. Auctionator와 비교한 113은 겹친 품목 2,984개, 중앙 상대오차 1,000bp(10%)로 가장 가깝습니다. 이는 추정이며 **내 시장 ID 확정이 아닙니다**. `market_confirmed`는 false로 유지합니다. 실제 API 이력이 시장당 1회뿐이므로 판매 확률·일일 판매량·시간대 효율도 데이터 부족입니다.

@@ -145,7 +145,7 @@ CSV 보강: `python import_vendors.py --config config.forever.json vendor_offers
 | `sync_static.py`, `forever_api.py`, `static_parsers.py`, `static_store.py` | 수집·인증 API·캐시·파싱·증거·마이그레이션 |
 | `import_auctionator.py`, `savedvariables.py` | Lua/CBOR 데이터를 실행하지 않고 읽기 |
 | `collect_api.py`, `sync_recipes.py` | 한국 리테일 공식 API (`dynamic-kr`) |
-| `blizzard_collector.py`, `market_quotes.py` | Forever 경매장 수집 경로(실응답 미검증), 확인한 시장 가격 연결 |
+| `blizzard_collector.py`, `market_quotes.py` | Forever KR 경매장 실응답 수집, 확인한 시장 가격 연결 |
 | `analyze.py`, `forever_report.py` | 리테일 기회 분석 / Forever 조사표 |
 | `import_vendors.py` | 여러 판매처 CSV 추가·수정 |
 | `common.py`, `schema.sql`, `static_schema.sql` | 설정·SQLite·스키마 |
@@ -172,7 +172,9 @@ schtasks /Create /TN "WoW Forever Static" /SC WEEKLY /D SUN /ST 04:00 /TR '"C:\P
 
 ## Blizzard 수집 상태와 내 시장 연결
 
-`blizzard_collector.py`의 Forever 경로는 **실응답 미검증**입니다. 2026-11-12 공개 [리테일 API 문서](https://community.developer.battle.net/documentation/world-of-warcraft/game-data-apis), [클래식 API 문서](https://community.developer.battle.net/documentation/world-of-warcraft-classic/game-data-apis), [클래식 네임스페이스](https://community.developer.battle.net/documentation/world-of-warcraft-classic/guides/namespaces)를 확인했으나 코드의 `/data/wow/ruleset/{ruleset}/auctions/...`와 `dynamic-forever-kr`를 찾지 못했습니다. 이 사실만으로 지원 여부를 단정하지 않습니다. 실제 KR 색인·매물 응답을 확인하기 전까지 운영 수집기로 검증됐다고 보지 마세요. 클래식·리테일 경로로 임의 대체하지 않습니다.
+2026-11-12 Battle.net OAuth 인증 후 **Forever KR 실제 API 수집에 성공**했습니다. `dynamic-forever-kr`의 `/data/wow/ruleset/1` 응답은 이름 `PvP`, 상태 `UP`을 반환했습니다. 경매장 색인 15개 중 호드·검은바다 10개를 조회해 4개 경매장에서 스냅샷 4개·가격 있는 매물 64,312개·품목 가격 5,409행을 저장했습니다. 같은 Last-Modified의 재조회에서는 스냅샷 4개를 모두 중복 제외했습니다. 경로는 실제 응답으로 검증했으며, 앞서 확인한 공개 리테일·클래식 문서에서는 찾지 못했습니다. 클래식·리테일 자료를 대신 사용하지 않았습니다.
+
+경매장 115·118·120·121·124·125는 HTTP 성공 응답에 `auctions` 배열이 없었습니다. 명시적인 빈 시장이라는 근거가 없어 저장하지 않았고 전체 실행은 부분 실패로 보고합니다. 113·114는 모두 `호드 경매장`으로 표시되며 응답에 둘을 구분하는 서버 정보가 없습니다. Auctionator 가격 유사도는 113을 가장 가깝게 지목하지만 **내 경매장 ID 확정 근거로 사용하지 않습니다**. `market_confirmed`는 아직 false이고, 행동 계산은 Auctionator 관측을 유지하며 API 가격은 상세의 경매장별 근거로 표시합니다. 정확한 건수·샘플은 [FIX_VERIFICATION.md](FIX_VERIFICATION.md)를 보세요.
 
 Battle.net API는 [개발자 포털 API Access](https://community.developer.battle.net/access/clients)에서 발급받은 `BNET_CLIENT_ID`와 `BNET_CLIENT_SECRET`을 `.env`에 넣습니다. ForeverDB의 `fdb_` 키와는 별개입니다. [공식 시작 안내](https://community.developer.battle.net/documentation/guides/getting-started)를 참고하세요. 인증값은 저장소나 출력에 넣지 않습니다.
 
