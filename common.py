@@ -143,6 +143,31 @@ def load_env(path):
             os.environ.setdefault(k.strip(), v.strip().strip("\"'"))
 
 
+def http_json(url, headers, data=None):
+    """JSON request with the Battle.net retry policy. Errors omit credentials and bodies."""
+    for attempt in range(3):
+        try:
+            with urlopen(Request(url, data=data, headers=headers), timeout=60) as response:
+                return json.load(response), response.headers.get("Last-Modified")
+        except HTTPError as exc:
+            code = exc.code
+            retry = exc.headers.get("Retry-After", "")
+            exc.close()
+            if code == 304:
+                return None, None
+            if code == 429 or code >= 500:
+                if attempt < 2:
+                    time.sleep(min(30, int(retry)) if retry.isdigit() else 2 ** attempt)
+                    continue
+            raise AppError(f"Blizzard HTTP {code} (인증 정보/응답 본문 생략)") from None
+        except (URLError, TimeoutError):
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+                continue
+            raise AppError("Blizzard 네트워크 연결 실패") from None
+    raise AppError("Blizzard 요청 실패")
+
+
 class Blizzard:
     def __init__(self, cfg, fixture=None):
         if cfg.get("game_flavor", "retail") != "retail":
@@ -158,27 +183,7 @@ class Blizzard:
                 raise AppError(".env에 BNET_CLIENT_ID / BNET_CLIENT_SECRET을 설정하세요. 값은 로그에 남기지 않습니다.")
 
     def request(self, url, headers, data=None):
-        for attempt in range(3):
-            try:
-                with urlopen(Request(url, data=data, headers=headers), timeout=60) as response:
-                    return json.load(response), response.headers.get("Last-Modified")
-            except HTTPError as exc:
-                code = exc.code
-                retry = exc.headers.get("Retry-After", "")
-                exc.close()
-                if code == 304:
-                    return None, None
-                if code == 429 or code >= 500:
-                    if attempt < 2:
-                        time.sleep(min(30, int(retry)) if retry.isdigit() else 2 ** attempt)
-                        continue
-                raise AppError(f"Blizzard HTTP {code} (인증 정보/응답 본문 생략)") from None
-            except (URLError, TimeoutError):
-                if attempt < 2:
-                    time.sleep(2 ** attempt)
-                    continue
-                raise AppError("Blizzard 네트워크 연결 실패") from None
-        raise AppError("Blizzard 요청 실패")
+        return http_json(url, headers, data)
 
     def get(self, path, static=False, modified=None):
         if self.fixture is not None:

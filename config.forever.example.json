@@ -33,5 +33,15 @@
     "deposit_rate_pct": null,
     "deposit_copper_per_item": null,
     "sell_through_pct": null
+  },
+  "blizzard_forever": {
+    "ruleset": 1,
+    "namespace": "dynamic-forever-kr",
+    "locale": "ko_KR",
+    "region": "kr",
+    "house_ids": [],
+    "house_id": null,
+    "include_alliance": false,
+    "db_path": null
   }
 }

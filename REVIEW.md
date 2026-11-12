@@ -222,3 +222,13 @@ null인 보증금·체결 확률은 코드가 0으로 바꾸지 않는다. 개�
 - 설정은 주 전문기술 2개 제한이 그대로다. 화면 체크는 비교용으로 더 고를 수 있다.
 - Node 스텁은 `innerHTML`에서 id를 건질 뿐 실제 레이아웃, CSP, 대화상자를 검증하지 않는다.
 - 자바스크립트 `Math.floor`와 파이썬 `//`는 아주 큰 금액에서 1동 차이 날 수 있다. 1라운드와 같다.
+
+## 블리자드 AH 수집
+
+공식 WoW Forever KR 경매장(룰셋 1, `dynamic-forever-kr`, `ko_KR`)을 `blizzard_collector.py`로 스냅샷한다. 리테일 `collect_api.py`와 `snapshots.source`(`api`/`auctionator`)는 그대로다. 새 테이블은 `blizzard_houses`, `blizzard_snapshots`, `blizzard_checks`, `blizzard_item_prices`, `blizzard_listings`이고 `CREATE TABLE IF NOT EXISTS`만 추가했다.
+
+기본 수집은 색인 이름 기준의 호드와 검은바다 전부다. 113–118만 고정하지 않는다. 얼라이언스는 `house_ids`, `include_alliance`, `--houses` 중 하나가 있기 전에는 매물을 받지 않는다. `auctions`가 없거나 null이면 빈 집으로 저장한다. 단가는 재료 `unit_price` 또는 `floor(buyout/quantity)`다. 입찰만 있거나 정수가 아니면 버린다. `fetched_at`은 UTC이고 `Last-Modified`가 양쪽 모두 이전과 같으면 스냅샷은 생략하고 확인 행만 남긴다.
+
+소멸은 만료 전 사라짐(판매 또는 취소)의 추정이다. 스냅샷 6개, UTC 날 3일, 판정 매물 20건이 되기 전에는 데이터 부족이다. 넘으면 내림 백분율을 `추정`으로만 적는다. `listing_cost.sell_through_pct`가 있으면 그 값이 우선이다. 없을 때는 `house_id` 하나 또는 `house_ids`가 하나일 때만 공식 순이익에 넣는다. 0%는 기대 손실을 만들지 않는다. 한국 시간 비교는 스냅샷 12개, 2일, 시각 4개(시각마다 2회)가 있을 때만 추정이다. 경매장 맞춤은 같은 아이템 5개 이상에서 `|공식−Auctionator|×10000/Auctionator`의 하위 중앙값이다. Auctionator가 없으면 번호를 고르지 않는다. Auctionator 최저가와 매수 유동성 가드는 바꾸지 않는다.
+
+테스트는 픽스처 JSON과 합성 행만 사용한다. `python3 -m unittest discover -s tests -q`는 **108 OK** (기존 83 + `tests/test_blizzard.py` 25)이다. 라이브 Battle.net 호출, 비밀 파일, 개인 Auctionator, NAS는 건드리지 않았다. 화면의 새 경매장 표는 브라우저로 눌러 보지 않았고, 기존 Node 구문·DOM 스텁과 단위 테스트만 통과를 확인했다. 라이브 수집과 cron은 사용자가 저장소 밖 DB·env로 실행한다.

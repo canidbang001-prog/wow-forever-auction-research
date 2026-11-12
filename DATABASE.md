@@ -129,3 +129,25 @@ FROM ranked WHERE rank=1 AND realm_id=-1 ORDER BY item_id,scan_day;
 ```
 
 `market_history.py`는 이 기록을 전부 화면에 포함하고 최근 7일/30일 내 실제 관측 범위와 관측일 수를 표시합니다. 기간 전체가 관측됐다는 뜻은 아닙니다. 조건부 시험 판매 계산의 기준은 최근 7일의 m 기록과 일별 low 중 최솟값입니다. 가중 중위가·실제 판매가로 승격하지 않습니다.
+
+## 블리자드 Forever 경매장 스냅샷
+
+리테일 `snapshots.source`는 `api` / `auctionator`만 허용합니다. Forever 공식 경매장은 그 열에 넣지 않고 아래 테이블을 씁니다. `connect()`가 `CREATE TABLE IF NOT EXISTS`로 기존 DB에도 만듭니다. DROP이나 기존 CHECK 변경은 없습니다. 가격은 동 정수입니다. 비밀·토큰·Authorization은 어떤 열에도 없습니다.
+
+| 테이블 | 의미 |
+|---|---|
+| `blizzard_houses` | PK(`house_id`, `ruleset`). 색인에서 본 이름과 진영(`horde` / `alliance` / `blackwater` / `unknown`). 얼라이언스도 메타데이터로는 남길 수 있으나 기본 수집은 매물을 받지 않습니다. |
+| `blizzard_snapshots` | 한 경매장의 한 시각. `fetched_at`은 UTC, `fetched_epoch`는 그 시각의 초. 경매·재료 `Last-Modified`를 따로 저장합니다. `n_auctions` / `n_commodities`는 응답 행 수(단가 없는 행 포함), `n_priced`는 단가를 남긴 매물 수입니다. 두 Last-Modified가 모두 있는 조합은 경매장·룰셋마다 한 번만 저장합니다. |
+| `blizzard_checks` | 확인 시각과 Last-Modified, `stored` 0/1. 내용이 같아 스냅샷을 생략해도 행은 남습니다. 오류는 이 표가 아니라 실행 로그의 예외 종류로만 남깁니다. |
+| `blizzard_item_prices` | 스냅샷·아이템별 최저 단가, 수량 가중 하위 중위, 하위 25%, 수량 합, 단가가 있는 매물 수. 모두 양의 정수 단가입니다. |
+| `blizzard_listings` | 단가가 있는 매물의 (`kind`, `listing_id`)만. `kind`는 `auction` 또는 `commodity`. 소멸 추정에 필요합니다. 입찰만 있는 매물, 수량 0, 정수가 아닌 가격은 넣지 않습니다. |
+
+재료(`commodity`) 단가는 응답 `unit_price` 그대로입니다. 비재료 단가는 `floor(즉시구매 / 수량)`입니다. 올림하지 않습니다.
+
+소멸 추정은 연속한 두 스냅샷만 비교합니다. 이전 스냅샷의 매물 ID가 다음에 없고, 두 시각의 간격이 0보다 크며 그 매물의 `time_left` 버킷 최소 시간보다 짧으면 만료 전에 사라진 것으로 셉니다. SHORT(최소 0초)는 항상 제외합니다. MEDIUM은 30분 미만, LONG은 2시간 미만, VERY_LONG은 12시간 미만만 해당합니다. 간격이 최소 시간 이상이면 만료했을 수 있으므로 분자에도 분모에도 넣지 않습니다. 다음 스냅샷에 그대로 있으면 생존입니다. 비율은 `floor(사라짐 × 100 / (사라짐 + 생존))`입니다. 판매인지 취소인지는 구분하지 않습니다. 확정 판매가 아닙니다.
+
+이 비율을 숫자로 쓰려면 그 아이템에 단가가 있는 스냅샷 6개, 서로 다른 UTC 날짜 3일, 판정된 매물(사라짐+생존) 20건이 모두 필요합니다. 하나라도 부족하면 비율은 NULL과 같고 화면은 데이터 부족입니다. 0%가 나와도 기대 보증금 손실은 유한하지 않아 데이터 부족으로 둡니다. 사용자가 `listing_cost.sell_through_pct`를 적으면 그 값이 우선이고, 추정은 `blizzard_forever.house_id` 또는 `house_ids`가 정확히 하나일 때만 그 경매장에 적용합니다.
+
+한국 시간 비교는 `scan_timezone_offset_hours`(기본 9)를 UTC에 더한 시각입니다. 스냅샷 12개, 서로 다른 한국 날짜 2일, 관측이 2회 이상인 시각 4개가 필요하고, 그 시각들의 최저가 하위 중위가 서로 달라야 싼 시각과 비싼 시각을 적습니다. 아니면 데이터 부족입니다. 유동성 가드의 관측일은 타임스탬프의 UTC 날짜이고, 시간대 칸만 한국 시간입니다.
+
+경매장 추정은 Auctionator `latest_prices` 최저가와 각 경매장 최신 스냅샷 최저가를 같은 아이템에서 비교합니다. 겹치는 아이템이 5개 미만이거나 Auctionator 가격이 없으면 번호를 고르지 않습니다. 지표는 `|공식−Auctionator| × 10000 / Auctionator` 기저점의 하위 중앙값입니다. 오름차순, 같으면 겹친 수가 많은 쪽, 그래도 같으면 작은 번호입니다. 동률은 문서에 남기고 확정이 아니라고 적습니다.

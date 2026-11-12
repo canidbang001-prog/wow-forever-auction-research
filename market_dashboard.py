@@ -189,12 +189,15 @@ def build_market(db, cfg, now=None):
             if reagent['id'] in items:
                 items[reagent['id']]['craft_uses'] += 1
 
+    from blizzard_collector import attach_blizzard
+    blizzard = attach_blizzard(db, cfg, items, now, rid)
     data = {'generated': now.isoformat(timespec='seconds'), 'build': build,
             'mode': get_meta(db, 'data_mode'), 'market': {'region': cfg.get('market_region', 'unknown'),
             'ruleset': cfg.get('market_ruleset', cfg.get('auctionator_realm_key', '')),
             'faction': cfg.get('market_faction', 'unknown'), 'realm_id': rid,
             'scope_note': '지역·플레이 진영은 사용자 지정. SavedVariables의 PvP 키 자체에는 진영이 없어 기존 가격 기록을 진영별로 자동 분리하지 않습니다.'},
             'snapshots': snapshots, 'items': list(items.values()), 'vendors': offers, 'crafts': crafts,
+            'blizzard': blizzard,
             'known_recipes': known is not None, 'character': profile, 'coverage': coverage,
             'metrics': {'weighted_median': None, 'sales_per_day': None, 'recommended_deals': 0}}
     from action_planner import plan_actions

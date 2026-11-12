@@ -50,6 +50,19 @@ def market_settings(cfg):
     }
 
 
+def sell_settings_for_item(settings, item):
+    """A number in config stays the user's. A Blizzard estimate is used only for the selected house."""
+    if settings.get('sell_through_pct') is not None:
+        return settings, '사용자 설정'
+    block = (item or {}).get('blizzard') or {}
+    selected = block.get('selected_house_id')
+    house = next((row for row in block.get('houses') or [] if row.get('house_id') == selected), None)
+    pct = None if house is None else house.get('sell_through_pct')
+    if house and house.get('sell_through_status') == '추정' and type(pct) is int and not isinstance(pct, bool):
+        return dict(settings, sell_through_pct=pct), '추정'
+    return settings, '데이터 부족'
+
+
 def _dates(item):
     if not item:
         return []
@@ -306,10 +319,11 @@ def alchemy_rows(craft, items, now, settings):
 BOUND = ('1', 'BIND_ON_ACQUIRE', 'BIND_ON_PICKUP', 'QUEST')
 
 
-def _apply_money(calc, scenario, unit_qty, settings, liq):
+def _apply_money(calc, scenario, unit_qty, settings, liq, item=None):
     """Official net uses the stress sale. Unknown deposit loss is left unknown, not zero."""
-    stress = listing_quote(scenario['stress_price'], calc['qty'], calc['cost'], settings)
-    plain = listing_quote(scenario['price'], calc['qty'], calc['cost'], settings)
+    use, label = sell_settings_for_item(settings, item)
+    stress = listing_quote(scenario['stress_price'], calc['qty'], calc['cost'], use)
+    plain = listing_quote(scenario['price'], calc['qty'], calc['cost'], use)
     plan = position_plan(calc['cost'], unit_qty, settings)
     calc.update(plan, liquidity=liq, listing=plain, stress_listing=stress,
                 official_net=stress['official_net'], official_net_status=stress['official_net_status'],
@@ -318,7 +332,8 @@ def _apply_money(calc, scenario, unit_qty, settings, liq):
                 expected_deposit_loss_status=stress['expected_deposit_loss_status'],
                 net_ex_deposit=stress['net_ex_deposit'], unstressed_net_ex_deposit=plain['net_ex_deposit'],
                 unstressed_ah_cut=plain['ah_cut'], unstressed_deposit=plain['deposit'],
-                unstressed_basis='스트레스 없는 등록 가정. 20% 스트레스 시험이 아닙니다.')
+                unstressed_basis='스트레스 없는 등록 가정. 20% 스트레스 시험이 아닙니다.',
+                sell_through_pct=use.get('sell_through_pct'), sell_through_label=label)
     return plan
 
 
@@ -361,7 +376,7 @@ def plan_actions(data, cfg, now=None):
         calc['buy_ceiling'] = min(budget, calc['buy_ceiling'])
         if calc['cost'] > budget or calc['cost'] > calc['buy_ceiling'] or calc['stress_difference'] <= 0:
             continue
-        plan = _apply_money(calc, scenario, v['qty'], settings, liq)
+        plan = _apply_money(calc, scenario, v['qty'], settings, liq, item)
         if calc['official_net'] is not None and calc['official_net'] <= 0:
             watch.append(_watch('vendor', v['item'], liq, '공식 순이익이 0 이하입니다. 매수 추천에서 뺍니다.',
                                 offer_id=v['id'], status='순이익 없음'))
@@ -411,7 +426,7 @@ def plan_actions(data, cfg, now=None):
         calc['buy_ceiling'] = min(budget, calc['buy_ceiling'])
         if calc['cost'] > calc['buy_ceiling'] or calc['stress_difference'] <= 0:
             continue
-        plan = _apply_money(calc, scenario, c['qty'], settings, liq)
+        plan = _apply_money(calc, scenario, c['qty'], settings, liq, item)
         if calc['official_net'] is not None and calc['official_net'] <= 0:
             watch.append(_watch('craft', c['item'], liq, '공식 순이익이 0 이하입니다. 매수 추천에서 뺍니다.',
                                 spell=c['spell'], status='순이익 없음'))
@@ -494,6 +509,13 @@ def plan_actions(data, cfg, now=None):
     shown = crafts[:20]
     deposit_known = settings['deposit_rate_pct'] is not None or settings['deposit_copper_per_item'] is not None
     sell_known = settings['sell_through_pct'] not in (None, 0) and deposit_known
+    any_estimate = any(row.get('sell_through_label') == '추정' for row in vendors + shown)
+    if sell_known:
+        basis = '사용자 설정'
+    elif any_estimate:
+        basis = '추정'
+    else:
+        basis = '데이터 부족'
     return {'vendors': vendors, 'crafts': shown, 'craft_pool': crafts, 'farms': farms,
             'by_profession': {p: rows[:20] for p, rows in by_profession.items()},
             'services': services, 'comparisons': comparisons, 'watch': unique_watch,
@@ -507,7 +529,7 @@ def plan_actions(data, cfg, now=None):
             'listing_cost': {'deposit_rate_pct': settings['deposit_rate_pct'],
                              'deposit_copper_per_item': settings['deposit_copper_per_item'],
                              'sell_through_pct': settings['sell_through_pct']},
-            'sell_through_known': sell_known, 'target_margin_pct': 20, 'haircut_pct': haircut,
+            'sell_through_known': sell_known, 'sell_through_basis': basis, 'target_margin_pct': 20, 'haircut_pct': haircut,
             'listing_model': '기대 보증금 손실 = 올림(보증금 × (100−체결%) / 체결%). 성공 등록의 보증금은 돌아온다고 가정하며 Forever 공식이 아닙니다. 개당 보증금과 판매가 비율을 둘 다 적으면 더합니다. 하나라도 없으면 데이터 부족이고 0으로 빼지 않습니다.',
             'farming_goal': 100000, 'sample_limit': '1묶음 / 제작 1회',
             'recommendation_status': 'conditional_trial',
@@ -525,7 +547,12 @@ def action_report(data):
     clean = lambda s: str(s).replace('|', '/').replace('\n', ' ')
     actions = data['actions']
     buys = actions.get('buy_recommendations') or []
-    if not actions.get('sell_through_known'):
+    basis = actions.get('sell_through_basis') or ('사용자 설정' if actions.get('sell_through_known') else '데이터 부족')
+    if basis == '추정':
+        official = ('공식 순이익에 쓴 체결 확률은 블리자드 스냅샷 추정입니다. '
+                    '만료 전에 사라진 매물(판매 또는 취소)이며 확정 판매가 아닙니다. '
+                    '0%이거나 보증금이 없으면 그 칸은 데이터 부족입니다.')
+    elif not actions.get('sell_through_known'):
         official = '공식 순이익: 데이터 부족. 아래는 조건부 시험입니다. 보증금 기대 손실을 0으로 빼지 않습니다.'
     elif not buys:
         official = '공식 순이익을 계산할 설정은 있습니다. 조건을 통과한 매수 추천은 없습니다. 기대 손실을 0으로 채우지 않습니다.'
@@ -560,7 +587,9 @@ def action_report(data):
             proof = (f"#{s['snapshot']}, {s['files']}가격파일/{s['days']}개 7일 기록, 서로 다른 관측일 {s.get('distinct_days')}일, "
                      f"일별 {s['daily_points']}행/파일근거 {s['daily_imports']}, 관측 {s['observed']}; "
                      f"{a.get('cap_note','')}; {source['url']}; 빌드 {source['build']}; 조회 {source['date']}; "
-                     + ', '.join(a['checks']))
+                     + ', '.join(a['checks'])
+                     + (f"; 체결 {a.get('sell_through_pct')}% 추정(판매 또는 취소, 확정 판매 아님)"
+                        if a.get('sell_through_label') == '추정' else ''))
             out.append('| '+' | '.join(map(clean,[items[a['item']]['name'], step, show(a['cost']), show(a.get('ah_cut')),
                         show(a.get('deposit')) if a.get('deposit_status') != '데이터 부족' else '데이터 부족',
                         show(a.get('expected_deposit_loss')) if a.get('expected_deposit_loss_status') != '데이터 부족' else '데이터 부족',
@@ -617,4 +646,39 @@ def action_report(data):
         out.append('| '+' | '.join(map(clean,[i['name'],gold(i['price']),gold(f['net_per_unit']),
                     str(f['units_for_10g'])+'개 획득·판매',
                     f"#{f['sale']['snapshot']} / {f['sale']['observed']}; 관측일 {f.get('distinct_days')} · 최신 {age(f.get('price_age_seconds'))}; 제작 용도 {i['craft_uses']}개 (판매량 아님); 획득처·시간당 수량 미확인"]))+' |')
+    out += ['', '## 블리자드 Forever 경매장', '',
+            'Auctionator 최저가와 별도입니다. 선택한 경매장 번호가 없으면 체결 추정은 공식 순이익에 넣지 않습니다.',
+            '시간대는 한국 시간입니다. 스냅샷이 모자라면 시간대와 체결 추정은 데이터 부족입니다.',
+            '만료 전에 사라진 매물은 판매 또는 취소의 추정입니다. 확정 판매가 아닙니다.']
+    info = data.get('blizzard') or {}
+    if info.get('note'):
+        out.append(info['note'])
+    if (info.get('match') or {}).get('note'):
+        out.append(info['match']['note'])
+    selected = info.get('selected_house_id')
+    out.append('계산에 쓰는 경매장: ' + (str(selected) if selected else '없음'))
+    shown_rows = 0
+    for item in data.get('items') or []:
+        for house in (item.get('blizzard') or {}).get('houses') or []:
+            if shown_rows >= 12:
+                break
+            hourly = house.get('hourly') or {}
+            if hourly.get('status') == '추정':
+                hours = (f"싼 시각 {', '.join(map(str, hourly.get('cheapest_hours_kst') or []))}시 / "
+                         f"비싼 시각 {', '.join(map(str, hourly.get('expensive_hours_kst') or []))}시 (추정)")
+            else:
+                hours = '시간대 데이터 부족'
+            if house.get('sell_through_status') == '추정':
+                sold = f"소멸 추정 {house.get('sell_through_pct')}%"
+            else:
+                sold = '체결 추정 데이터 부족'
+            out.append(f"- {item.get('name') or item.get('id')} · 경매장 {house.get('house_id')}: "
+                       f"최저 {gold(house['min_unit_price']) if house.get('min_unit_price') else '데이터 부족'}, "
+                       f"관측일 {house.get('distinct_days')}, 최신 {age(house.get('price_age_seconds'))}, "
+                       f"유동성 {house.get('liquidity')}, {hours}, {sold}")
+            shown_rows += 1
+        if shown_rows >= 12:
+            break
+    if shown_rows == 0:
+        out.append('보관된 블리자드 가격이 없습니다. 데이터 부족.')
     return '\n'.join(out)+'\n'

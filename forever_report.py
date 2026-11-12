@@ -119,4 +119,6 @@ def report(db,cfg,now):
               '이름이 같다는 이유로 ID를 연결하지 않습니다. 수량·재료 ID가 빠진 제작은 원가 계산에서 제외합니다.',
               'ForeverDB 인증 API에서 제작 ID·수량, NPC 좌표·구매 묶음·통화를 수집합니다. '
               '퀘스트 요구 아이템은 확인한 API 응답에서 제공되지 않았으므로 라이브 요구 관계로 보완할 수 없습니다.']
+    from blizzard_collector import summary_lines
+    lines += summary_lines(db, cfg, int(rid) if rid else None)
     return '\n'.join(lines)+'\n'
