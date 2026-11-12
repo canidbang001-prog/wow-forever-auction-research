@@ -1,0 +1,381 @@
+{
+  "source_url": "https://foreverdb.net/api/v1/professions/engineering?limit=100",
+  "fetched_at": "2026-11-11T16:56:19+00:00",
+  "original_sha256": "0006db2d58e18e40fba7e3c0b4fb80e26051907ab4426bda1863830e8996f8c5",
+  "game_build": "1.60.1.70862",
+  "extraction": "One unmodified recipe object from real data.recipes; not a standalone paginated response",
+  "recipe": {
+    "spellId": 3931,
+    "name": "Coarse Dynamite",
+    "icon": "https://foreverdb.net/icons/133714.webp",
+    "category": {
+      "id": 2516,
+      "name": "Explosives",
+      "order": 20,
+      "parent": {
+        "id": 2428,
+        "name": "Engineering"
+      }
+    },
+    "skill": {
+      "orange": 75,
+      "orangeSource": "classic",
+      "yellow": 90,
+      "green": 97,
+      "grey": 105
+    },
+    "requiredLevel": null,
+    "makes": {
+      "itemId": 4365,
+      "name": "Coarse Dynamite",
+      "count": 2,
+      "min": 1,
+      "max": 3,
+      "quality": "Common",
+      "url": "https://foreverdb.net/item/4365"
+    },
+    "effect": null,
+    "reagents": [
+      {
+        "itemId": 4364,
+        "name": "Coarse Blasting Powder",
+        "count": 3
+      },
+      {
+        "itemId": 2589,
+        "name": "Linen Cloth",
+        "count": 1
+      }
+    ],
+    "tools": [],
+    "needsNearby": null,
+    "learnedFrom": {
+      "automatic": false,
+      "trainer": {
+        "cost": 250,
+        "trainers": 19,
+        "source": "seen in Forever by players' ForeverDB addon: the full price, with the reputation discount the game showed taken off"
+      },
+      "recipeItems": [],
+      "recipeItemsHidden": [],
+      "recipeItemsNotInClient": [],
+      "classicVendors": 0,
+      "seenAtForeverTrainers": [
+        "Bronk Guzzlegear",
+        "Deek Fizzlebizz",
+        "Jemma Quikswitch"
+      ],
+      "sources": {
+        "ways": [
+          "trainer"
+        ],
+        "learnAtSkill": 75,
+        "recipeItem": null,
+        "trainers": {
+          "alliance": [
+            {
+              "npcId": 11028,
+              "name": "Jemma Quikswitch",
+              "title": "Journeyman Engineer",
+              "faction": "Alliance",
+              "mapId": 1455,
+              "zone": "Ironforge",
+              "x": 68.1,
+              "y": 44.4,
+              "seenInForever": true,
+              "source": "seen in Forever by players' ForeverDB addon"
+            },
+            {
+              "npcId": 11029,
+              "name": "Trixie Quikswitch",
+              "title": "Expert Engineer",
+              "faction": "Alliance",
+              "mapId": 1455,
+              "zone": "Ironforge",
+              "x": 67.8,
+              "y": 43.2,
+              "seenInForever": true,
+              "source": "seen in Forever by players' ForeverDB addon"
+            },
+            {
+              "npcId": 5518,
+              "name": "Lilliam Sparkspindle",
+              "title": "Expert Engineer",
+              "faction": "Alliance",
+              "mapId": 1453,
+              "zone": "Stormwind City",
+              "x": 62.1,
+              "y": 30.6,
+              "seenInForever": true,
+              "source": "seen in Forever by players' ForeverDB addon"
+            },
+            {
+              "npcId": 11026,
+              "name": "Sprite Jumpsprocket",
+              "title": "Journeyman Engineer",
+              "faction": "Alliance",
+              "mapId": 1453,
+              "zone": "Stormwind City",
+              "x": 61.9,
+              "y": 30.9,
+              "seenInForever": true,
+              "source": "seen in Forever by players' ForeverDB addon"
+            },
+            {
+              "npcId": 1702,
+              "name": "Bronk Guzzlegear",
+              "title": "Journeyman Engineer",
+              "faction": "Alliance",
+              "mapId": 1426,
+              "zone": "Dun Morogh",
+              "x": 50.1,
+              "y": 50.4,
+              "seenInForever": true,
+              "source": "seen in Forever by players' ForeverDB addon"
+            },
+            {
+              "npcId": 3290,
+              "name": "Deek Fizzlebizz",
+              "title": "Journeyman Engineer",
+              "faction": "Alliance",
+              "mapId": 1432,
+              "zone": "Loch Modan",
+              "x": 45.8,
+              "y": 13.6,
+              "seenInForever": true,
+              "source": "seen in Forever by players' ForeverDB addon"
+            },
+            {
+              "npcId": 3494,
+              "name": "Tinkerwiz",
+              "title": "Journeyman Engineer",
+              "faction": "Both",
+              "mapId": 1413,
+              "zone": "The Barrens",
+              "x": 62.7,
+              "y": 36.3,
+              "seenInForever": true,
+              "source": "seen in Forever by players' ForeverDB addon"
+            },
+            {
+              "npcId": 251684,
+              "name": "Strange Hermit",
+              "title": null,
+              "faction": "Both",
+              "mapId": 2521,
+              "zone": "Zephras Isle",
+              "x": 54.0,
+              "y": 38.9,
+              "seenInForever": true,
+              "source": "seen in Forever by players' ForeverDB addon"
+            },
+            {
+              "npcId": 5174,
+              "name": "Springspindle Fizzlegear",
+              "title": "Artisan Engineer",
+              "faction": "Alliance",
+              "mapId": 1455,
+              "zone": "Ironforge",
+              "x": 68.5,
+              "y": 43.5,
+              "seenInForever": false,
+              "source": "Classic data (CMaNGOS), not confirmed in Forever"
+            },
+            {
+              "npcId": 11037,
+              "name": "Jenna Lemkenilli",
+              "title": "Journeyman Engineer",
+              "faction": "Alliance",
+              "mapId": 1439,
+              "zone": "Darkshore",
+              "x": 38.3,
+              "y": 41.1,
+              "seenInForever": false,
+              "source": "Classic data (CMaNGOS), not confirmed in Forever"
+            },
+            {
+              "npcId": 1676,
+              "name": "Finbus Geargrind",
+              "title": "Expert Engineer",
+              "faction": "Alliance",
+              "mapId": 1431,
+              "zone": "Duskwood",
+              "x": 77.4,
+              "y": 48.8,
+              "seenInForever": false,
+              "source": "Classic data (CMaNGOS), not confirmed in Forever"
+            },
+            {
+              "npcId": 10993,
+              "name": "Twizwick Sprocketgrind",
+              "title": "Journeyman Engineer",
+              "faction": "Both",
+              "mapId": 1412,
+              "zone": "Mulgore",
+              "x": 58.6,
+              "y": 39.4,
+              "seenInForever": false,
+              "source": "Classic data (CMaNGOS), not confirmed in Forever"
+            },
+            {
+              "npcId": 8736,
+              "name": "Buzzek Bracketswing",
+              "title": "Master Engineer",
+              "faction": "Both",
+              "mapId": 1446,
+              "zone": "Tanaris",
+              "x": 52.3,
+              "y": 27.7,
+              "seenInForever": false,
+              "source": "Classic data (CMaNGOS), not confirmed in Forever"
+            }
+          ],
+          "horde": [
+            {
+              "npcId": 3412,
+              "name": "Nogg",
+              "title": "Expert Engineer",
+              "faction": "Horde",
+              "mapId": 1454,
+              "zone": "Orgrimmar",
+              "x": 76.0,
+              "y": 25.0,
+              "seenInForever": true,
+              "source": "seen in Forever by players' ForeverDB addon"
+            },
+            {
+              "npcId": 11025,
+              "name": "Mukdrak",
+              "title": "Journeyman Engineer",
+              "faction": "Horde",
+              "mapId": 1411,
+              "zone": "Durotar",
+              "x": 52.2,
+              "y": 40.9,
+              "seenInForever": true,
+              "source": "seen in Forever by players' ForeverDB addon"
+            },
+            {
+              "npcId": 3494,
+              "name": "Tinkerwiz",
+              "title": "Journeyman Engineer",
+              "faction": "Both",
+              "mapId": 1413,
+              "zone": "The Barrens",
+              "x": 62.7,
+              "y": 36.3,
+              "seenInForever": true,
+              "source": "seen in Forever by players' ForeverDB addon"
+            },
+            {
+              "npcId": 251684,
+              "name": "Strange Hermit",
+              "title": null,
+              "faction": "Both",
+              "mapId": 2521,
+              "zone": "Zephras Isle",
+              "x": 54.0,
+              "y": 38.9,
+              "seenInForever": true,
+              "source": "seen in Forever by players' ForeverDB addon"
+            },
+            {
+              "npcId": 11017,
+              "name": "Roxxik",
+              "title": "Artisan Engineer",
+              "faction": "Horde",
+              "mapId": 1454,
+              "zone": "Orgrimmar",
+              "x": 76.2,
+              "y": 25.2,
+              "seenInForever": false,
+              "source": "Classic data (CMaNGOS), not confirmed in Forever"
+            },
+            {
+              "npcId": 2857,
+              "name": "Thund",
+              "title": "Journeyman Engineer",
+              "faction": "Horde",
+              "mapId": 1454,
+              "zone": "Orgrimmar",
+              "x": 76.0,
+              "y": 24.1,
+              "seenInForever": false,
+              "source": "Classic data (CMaNGOS), not confirmed in Forever"
+            },
+            {
+              "npcId": 11031,
+              "name": "Franklin Lloyd",
+              "title": "Expert Engineer",
+              "faction": "Horde",
+              "mapId": 1458,
+              "zone": "Undercity",
+              "x": 76.1,
+              "y": 74.0,
+              "seenInForever": false,
+              "source": "Classic data (CMaNGOS), not confirmed in Forever"
+            },
+            {
+              "npcId": 4586,
+              "name": "Graham Van Talen",
+              "title": "Journeyman Engineer",
+              "faction": "Horde",
+              "mapId": 1458,
+              "zone": "Undercity",
+              "x": 75.3,
+              "y": 73.1,
+              "seenInForever": false,
+              "source": "Classic data (CMaNGOS), not confirmed in Forever"
+            },
+            {
+              "npcId": 10993,
+              "name": "Twizwick Sprocketgrind",
+              "title": "Journeyman Engineer",
+              "faction": "Both",
+              "mapId": 1412,
+              "zone": "Mulgore",
+              "x": 58.6,
+              "y": 39.4,
+              "seenInForever": false,
+              "source": "Classic data (CMaNGOS), not confirmed in Forever"
+            },
+            {
+              "npcId": 8736,
+              "name": "Buzzek Bracketswing",
+              "title": "Master Engineer",
+              "faction": "Both",
+              "mapId": 1446,
+              "zone": "Tanaris",
+              "x": 52.3,
+              "y": 27.7,
+              "seenInForever": false,
+              "source": "Classic data (CMaNGOS), not confirmed in Forever"
+            }
+          ]
+        },
+        "trainerCost": 250,
+        "trainerCostSource": "seen in Forever by players' ForeverDB addon: the full price, with the reputation discount the game showed taken off",
+        "trainersInAll": {
+          "alliance": 13,
+          "horde": 10
+        },
+        "seenAtForeverTrainers": [
+          "Bronk Guzzlegear",
+          "Deek Fizzlebizz",
+          "Jemma Quikswitch"
+        ],
+        "note": "Prices are in copper: price buys one purchase of stack items (pricePerItem: one item's share); costs are what the vendor asks besides gold (Merchant's Favor and other currencies, or items), as players' addons saw them. Vendors and trainers are Classic data (CMaNGOS) unless seenInForever; notOnListPlayersSaw: Classic's limited-supply line that wasn't on the list players saw at that vendor (the game leaves sold-out items off). A trainer that players saw teach the recipe in Forever is listed even when Classic has no record of it, and trainerCostSource says whether the price is what players saw (the full price: the game shows each player a reputation discount, which is taken off) or Classic's. Trainers marked inferred weren't seen with this recipe, but a trainer with the same title was (Forever's trainers with one title teach one list). drops is every drop (dropsInAll). Quests and drops come from players' ForeverDB addon where seen, else Classic data."
+      },
+      "known": true
+    },
+    "newInForever": false,
+    "changedFromClassic": [],
+    "sameNameRecipes": [],
+    "leftoverOf": null,
+    "classic": null,
+    "campTier": null,
+    "speculation": false,
+    "speculationReasons": [],
+    "url": "https://foreverdb.net/spell/3931"
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "url": "https://foreverdb.net/api/v1/professions/cooking?limit=100",
+  "fetched_at": "2026-11-11T16:53:01+00:00",
+  "original_sha256": "c2b9d43dab1006c9b2dd2f6f7b54ced226e010ada62e0f0fbe1d064759570448",
+  "fixture_sha256": "5813e4d53dac5a90f3b5572cab6f927a08d9601860e7fb69dea6090c08ac4ac2",
+  "redactions": [
+    "meta.client"
+  ],
+  "kind": "real_http_response"
+}

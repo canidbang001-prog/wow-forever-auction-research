@@ -107,16 +107,19 @@ def check_retail(path):
 
 
 def check_flavor(path, flavor):
+    label = {"retail": "리테일", "forever": "Forever"}[flavor]
+    marker = {"retail": "_retail_", "forever": "_forever_"}[flavor]
+    token = {"retail": "wow", "forever": "wowf"}[flavor]
     for parent in path.parents:
         flavor_file = parent / ".flavor.info"
         if flavor_file.exists():
             lines = flavor_file.read_text(encoding="utf-8").splitlines()
-            if not lines or lines[-1].strip() != {"retail": "wow", "forever": "wowf"}[flavor]:
+            if not lines or lines[-1].strip() != token:
                 raise AppError("설치 제품과 game_flavor가 다릅니다. 다른 제품 DB에 합칠 수 없습니다.")
             return
-        if parent.name == {"retail": "_retail_", "forever": "_forever_"}[flavor]:
+        if parent.name == marker:
             return
-    raise AppError("리테일 설치 경로를 확인할 수 없습니다. _retail_ 원본 경로를 설정하세요.")
+    raise AppError(f"{label} 설치 경로를 확인할 수 없습니다. {marker} 원본 경로를 설정하세요.")
 
 
 def main():

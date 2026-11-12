@@ -1,0 +1,47 @@
+{
+  "data": {
+    "id": 6328,
+    "name": "Recipe: Longjaw Mud Snapper",
+    "quality": "Common",
+    "qualityId": 1,
+    "itemLevel": 15,
+    "requiredLevel": 0,
+    "classId": 9,
+    "class": "Recipe",
+    "subclassId": 5,
+    "subclass": "Cooking",
+    "inventoryTypeId": 0,
+    "inventoryType": "Non-equippable",
+    "icon": "https://foreverdb.net/icons/134939.webp",
+    "url": "https://foreverdb.net/item/6328",
+    "betaEvent": false,
+    "speculation": false,
+    "speculationReasons": [],
+    "stats": [],
+    "damage": null,
+    "speed": null,
+    "bonding": null,
+    "sellPrice": 100,
+    "unique": false,
+    "effects": [
+      {
+        "trigger": "use",
+        "triggerId": 0,
+        "spellId": 402265,
+        "text": ""
+      },
+      {
+        "trigger": "use",
+        "triggerId": 6,
+        "spellId": 7753,
+        "text": ""
+      }
+    ],
+    "disenchantable": false,
+    "disenchant": null
+  },
+  "meta": {
+    "build": "1.60.1.70862",
+    "attribution": "Data from ForeverDB.net (https://foreverdb.net). You must credit ForeverDB.net, with a visible link to https://foreverdb.net, wherever you show this data."
+  }
+}

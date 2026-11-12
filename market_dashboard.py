@@ -95,6 +95,7 @@ def build_market(db, cfg, now=None):
     coverage.update(latest_prices=sum(i['price'] is not None for i in items.values()),
                     stored_price_rows=sum(len(i['snapshots']) for i in items.values()),
                     static_items=len(items), snapshots=len(snapshots))
+    from action_planner import canon_side
     offers, by_item, seen = [], defaultdict(list), set()
     rows = db.execute('''SELECT v.*,c.eligibility FROM current_vendor_offers v
             LEFT JOIN character_offer_checks c ON c.offer_id=v.offer_id AND c.character_key=?
@@ -106,7 +107,7 @@ def build_market(db, cfg, now=None):
              'npc': r['npc_name'], 'zone': r['zone'], 'x': r['x'], 'y': r['y'],
              'price': r['price_copper'], 'qty': r['purchase_qty'], 'basis': r['price_basis'],
              'stock': r['stock_state'], 'stock_qty': r['stock_quantity'],
-             'costs': decode(r['currency_costs']), 'side': conditions.get('npc_side'),
+             'costs': decode(r['currency_costs']), 'side': canon_side(conditions.get('npc_side')),
              'reputation': decode(r['reputation_required'], r['reputation_required']) if r['reputation_required'] and r['reputation_required'][0] in '[{' else r['reputation_required'],
              'discount': decode(r['reputation_discount_faction']), 'faction': r['faction'],
              'source': r['source'], 'url': r['source_url'],

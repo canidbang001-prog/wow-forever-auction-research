@@ -10,3 +10,6 @@ research/
 config.forever.json
 config.retail.json
 public-project/
+known_recipes.txt
+*.sqlite
+*.sqlite3

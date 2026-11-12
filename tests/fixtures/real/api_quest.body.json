@@ -1,0 +1,71 @@
+{
+  "data": {
+    "id": 4161,
+    "name": "Recipe of the Kaldorei",
+    "level": 7,
+    "requiredLevel": 1,
+    "side": "a",
+    "category": "Cooking",
+    "zone": {
+      "n": "Cooking",
+      "slug": "cooking",
+      "m": null
+    },
+    "knownInForever": true,
+    "source": "forever",
+    "levelSource": null,
+    "requiredLevelSource": null,
+    "starts": {
+      "type": "npc",
+      "id": 6286,
+      "name": "Zarrin",
+      "location": {
+        "uiMapId": 1438,
+        "zone": "Teldrassil",
+        "x": 57.2,
+        "y": 61.2,
+        "source": "seen in WoW Forever"
+      },
+      "instance": null,
+      "source": "seen in WoW Forever",
+      "players": 4,
+      "others": []
+    },
+    "ends": {
+      "type": "npc",
+      "id": 6286,
+      "name": "Zarrin",
+      "location": {
+        "uiMapId": 1438,
+        "zone": "Teldrassil",
+        "x": 57.1,
+        "y": 61.3,
+        "source": "seen in WoW Forever"
+      },
+      "instance": null,
+      "source": "seen in WoW Forever",
+      "players": 4,
+      "others": []
+    },
+    "chain": {
+      "previous": [
+        {
+          "questId": 96634,
+          "name": "Camping 101: Cooking",
+          "relation": "Offered after",
+          "source": "seen in WoW Forever",
+          "players": 1,
+          "url": "https://foreverdb.net/quest/96634"
+        }
+      ],
+      "next": [],
+      "questLine": null
+    },
+    "updated": "2026-11-11",
+    "url": "https://foreverdb.net/quest/4161-recipe-of-the-kaldorei"
+  },
+  "meta": {
+    "build": "1.60.1.70862",
+    "attribution": "Data from ForeverDB.net (https://foreverdb.net). You must credit ForeverDB.net, with a visible link to https://foreverdb.net, wherever you show this data."
+  }
+}

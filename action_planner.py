@@ -4,6 +4,14 @@ from fractions import Fraction
 from profession_profile import character_profile, allowed, CLOTH
 
 
+def canon_side(value):
+    """Map API/config spellings. Unknown text is kept; only three sides are factions."""
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return {'horde': 'Horde', 'alliance': 'Alliance', 'both': 'Both'}.get(text.casefold(), text or None)
+
+
 def sell_scenario(item, now, haircut=20):
     """A stress scenario, explicitly NOT a median or expected clearing price."""
     if not item or not item.get('price') or not item.get('observed'):
@@ -61,13 +69,16 @@ def plan_actions(data, cfg, now=None):
     now = now or datetime.now(timezone.utc)
     profile = character_profile(cfg)
     items = {i['id']: i for i in data['items']}
-    side = {'horde': 'Horde', 'alliance': 'Alliance'}.get(data['market']['faction'])
+    # 'both' / unknown means the character faction is not established.
+    side = canon_side(data['market'].get('faction'))
+    if side not in ('Horde', 'Alliance'):
+        side = None
     budget = 50000  # Trial cash cap, 5g; a setting, not a measured market quantity.
     vendors, crafts, used = [], [], set()
     for v in data['vendors']:
         item = items.get(v['item'])
         s = sell_scenario(item, now)
-        if (not s or not side or v['side'] not in (side, 'Both') or
+        if (not s or not side or canon_side(v.get('side')) not in (side, 'Both') or
                 v['verification'] != 'source_reported_live' or v['build'] != data['build'] or
                 v['costs'] != [] or v['price'] is None or not v['qty'] or
                 v['basis'] != 'per_purchase' or v['eligibility'] == 'ineligible'):
@@ -173,6 +184,9 @@ def action_report(data):
            '등록 가정은 최근 7일의 마지막 최저가 기록과 일별 최저가 중 가장 낮은 값에서 1동 차감. 중위가·체결가가 아닙니다.',
            '수수료 5% 차감. 가격 20% 하락 시에도 원가 대비 차액 20%가 남는지 검사합니다. 20%는 설정값이며 예측 확률이 아닙니다.',
            '시험 원가 5g 이하. 보증금 손실·이동·학습 비용 별도. 판매량과 매물 수량 미확인; 판매 전 추가 매입 보류.', '']
+    if canon_side(data['market'].get('faction')) not in ('Horde', 'Alliance'):
+        out.append('상점 시험 후보를 만들지 않습니다. market_faction이 horde 또는 alliance가 아니면 NPC 진영을 추정하지 않습니다.')
+        out.append('')
     for key, title in [('vendors', '상점 구매 후 시험 판매'), ('crafts', '배운 제작법으로 1회 시험')]:
         out += ['## '+title, '', '| 아이템 | 살 것 → 행동 | 비용 | 등록 가정/개 | 전량 판매 차액 | 20% 하락 시 차액 | 구매 상한 | 근거 / 확인할 것 |',
                 '|---|---|---:|---:|---:|---:|---:|---|']

@@ -1,0 +1,11 @@
+{
+  "name": "foreverdb_quest",
+  "url": "https://foreverdb.net/quest/4161-recipe-of-the-kaldorei",
+  "final_url": "https://foreverdb.net/quest/4161-recipe-of-the-kaldorei",
+  "status": 200,
+  "bytes": 51718,
+  "fetched_at": "2026-11-11T11:54:40.153050+00:00",
+  "original_sha256": "6de2000dd3b23c2a70d7abe632081dbb1d0a6f45ab5682649a3877559d22ddbc",
+  "fixture_sha256": "477f084c7b614e301bce39c54baee34056beee7a7a06d8f9e3c9c9ee3202c40c",
+  "extraction": "main element only"
+}

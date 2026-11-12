@@ -245,16 +245,20 @@ def parse_html(db,job,doc,text):
             if not m: continue
             price=money(m[3])
             if price is None: continue
+            # Zone suffix is NPC affiliation, not a confirmed purchase restriction.
             faction=re.search(r' \((Alliance|Horde)\)$',m[2])
             zone=m[2][:faction.start()] if faction else m[2]
             verification=('classic_reference' if 'Classic' in m[4] else
                           'source_reported_live' if 'seen in WoW Forever' in m[4] else 'unverified')
             if status=='beta_reference': verification=status
+            conditions={'source_label':m[4],'raw':raw}
+            if faction:
+                conditions['npc_side']=faction[1]
             offer(db,entity,'foreverdb',f'doc:{doc}:vendor:{index}',npc_name=m[1],zone=zone,
-                  faction=faction[1] if faction else None,**price,document_id=doc,source_url=url,
+                  faction=None,**price,document_id=doc,source_url=url,
                   verification=verification,price_basis='displayed_unknown_bundle',
                   note='SSR displayed price. Bundle, alternate costs, stock and purchase eligibility unknown.',
-                  conditions=json.dumps({'source_label':m[4],'raw':raw},ensure_ascii=False))
+                  conditions=json.dumps(conditions,ensure_ascii=False))
             parsed+=1
         coverage(db,url,'vendors','partial' if parsed else 'unknown',parsed,expected,
                  'No NPC IDs/bundle/stock/reputation/currency fields in inspected SSR; failed rows retained in cached page')

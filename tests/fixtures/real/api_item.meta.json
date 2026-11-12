@@ -1,0 +1,10 @@
+{
+  "url": "https://foreverdb.net/api/v1/items/6328",
+  "fetched_at": "2026-11-11T16:52:59+00:00",
+  "original_sha256": "c9568da3cc4df1f0e65e926c39d810358c3a22c2170bedd830240f533306f7e1",
+  "fixture_sha256": "48b64576d6d0521f54bc72e1381874dce0fc3b3e5534433d2e6b7714f40ee2e9",
+  "redactions": [
+    "meta.client"
+  ],
+  "kind": "real_http_response"
+}

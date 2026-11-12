@@ -53,7 +53,7 @@ ForeverDB / Wowhead ─ 정적 근거 ─┘           출처 · 빌드 · 조�
 
 ## 빠른 시작
 
-Python **3.10 이상**, 표준 라이브러리만 사용합니다. 전체 소스 묶음 `source.zip`에는 테스트와 실제 응답 fixture도 포함됩니다. 압축을 해제한 폴더에서 실행하세요.
+Python **3.10 이상**, 표준 라이브러리만 사용합니다. 테스트는 저장소의 `tests/`에서 바로 실행합니다. `source.zip`은 예전 스냅샷이라 현재 소스와 어긋날 수 있습니다.
 
 ```powershell
 Copy-Item config.forever.example.json config.forever.json
@@ -149,7 +149,7 @@ CSV 보강: `python import_vendors.py --config config.forever.json vendor_offers
 | `common.py`, `schema.sql`, `static_schema.sql` | 설정·SQLite·스키마 |
 | `demo.py`, `tests/` | 합성 데이터와 실제 응답 fixture 검증 |
 
-전체 소스 압축을 해제한 뒤 `python -m unittest discover -s tests -v`로 검사합니다. 실제/합성 검증을 구분한 결과는 [STATIC_VERIFICATION.md](STATIC_VERIFICATION.md)에 있습니다. 개인 설정, SavedVariables, DB, 키는 공개 배포하지 않습니다.
+`python -m unittest discover -s tests -v`로 검사합니다. 실제/합성 검증을 구분한 결과는 [STATIC_VERIFICATION.md](STATIC_VERIFICATION.md)에 있습니다. 개인 설정, SavedVariables, DB, 키는 공개 배포하지 않습니다.
 
 ## OS 스케줄러
 

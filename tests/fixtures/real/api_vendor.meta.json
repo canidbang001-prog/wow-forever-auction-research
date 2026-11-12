@@ -1,0 +1,10 @@
+{
+  "url": "https://foreverdb.net/api/v1/vendors/54",
+  "fetched_at": "2026-11-11T16:53:00+00:00",
+  "original_sha256": "986d9d05e82f03e6c8dd58cdfeaa914e8c8421f4dd7c1671c2b75b175a1ef5b8",
+  "fixture_sha256": "4a295890604a646b51f9ada1c6f1680a6e0621c92c8c3af88e5ba6fe94103f4f",
+  "redactions": [
+    "meta.client"
+  ],
+  "kind": "real_http_response"
+}
