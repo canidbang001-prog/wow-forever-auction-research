@@ -41,6 +41,7 @@
     "region": "kr",
     "house_ids": [],
     "house_id": null,
+    "market_confirmed": false,
     "include_alliance": false,
     "db_path": null
   }

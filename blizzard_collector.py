@@ -10,6 +10,7 @@ import json
 import os
 from collections import defaultdict
 from datetime import timedelta
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 import re
 import time
@@ -58,9 +59,14 @@ def forever_settings(cfg):
     include = block.get('include_alliance', False)
     if not isinstance(include, bool):
         raise AppError('include_alliance는 true 또는 false입니다.')
+    confirmed = block.get('market_confirmed', False)
+    if not isinstance(confirmed, bool):
+        raise AppError('blizzard_forever.market_confirmed는 true 또는 false입니다.')
     house_id = block.get('house_id', None)
     if house_id is not None and (type(house_id) is not int or isinstance(house_id, bool) or house_id <= 0):
         raise AppError('blizzard_forever.house_id는 양의 정수 또는 null입니다.')
+    if confirmed and house_id is None:
+        raise AppError('내 시장을 확인했다면 blizzard_forever.house_id를 명시하세요.')
     house_ids = block.get('house_ids') or []
     if (not isinstance(house_ids, list) or
             any(type(i) is not int or isinstance(i, bool) or i <= 0 for i in house_ids)):
@@ -73,11 +79,11 @@ def forever_settings(cfg):
         raise AppError('scan_timezone_offset_hours는 -14 이상 14 이하 정수입니다.')
     return {'ruleset': ruleset, 'namespace': namespace, 'locale': locale, 'region': region,
             'include_alliance': include, 'house_id': house_id, 'house_ids': list(house_ids),
-            'db_path': db_path, 'offset_hours': offset}
+            'db_path': db_path, 'offset_hours': offset, 'market_confirmed': confirmed}
 
 
 def selected_house_id(cfg):
-    """One explicit house may fill a sell-through estimate. Discovery of many houses does not."""
+    """A display selection only; prices additionally require market_confirmed and an explicit id."""
     settings = forever_settings(cfg)
     if settings['house_id']:
         return settings['house_id']
@@ -165,7 +171,7 @@ def _time_left(value):
 
 
 def parse_listings(body, kind):
-    """Priced listings only. Missing auctions is an empty house, not an error.
+    """Priced listings only. A missing/null array is not evidence of an empty house.
 
     Non-commodity unit price is floor(buyout / quantity). Commodity unit_price is
     already per item and is not divided. Bid-only and non-integer prices are omitted.
@@ -174,9 +180,7 @@ def parse_listings(body, kind):
         raise AppError('경매 응답이 없습니다.')
     if not isinstance(body, dict):
         raise AppError('경매 응답 형식 오류')
-    rows = body.get('auctions', [])
-    if rows is None:
-        rows = []
+    rows = body.get('auctions')
     if not isinstance(rows, list):
         raise AppError('auctions 배열이 아닙니다.')
     listings, seen = [], set()
@@ -239,18 +243,18 @@ def disappeared_before_expiry(time_left, gap_seconds):
 
 
 def sell_through_estimate(disappeared, survived, snapshots, distinct_days):
-    """Floor percent. Below the threshold the rate stays unknown. Cancellations are included."""
+    """Activity ratio only. Not a per-listing sale probability; cancellations are included."""
     classified = disappeared + survived
     base = {'disappeared': disappeared, 'survived': survived, 'classified': classified,
             'snapshots': snapshots, 'distinct_days': distinct_days}
     if (snapshots < MIN_SELL_SNAPSHOTS or distinct_days < MIN_SELL_DISTINCT_DAYS
             or classified < MIN_SELL_CLASSIFIED):
-        return dict(base, sell_through_pct=None, sell_through_status='데이터 부족',
+        return dict(base, disappearance_pct=None, disappearance_status='데이터 부족',
                     note=(f'스냅샷 {MIN_SELL_SNAPSHOTS}개, 서로 다른 날 {MIN_SELL_DISTINCT_DAYS}일, '
-                          f'판정 매물 {MIN_SELL_CLASSIFIED}건이 필요합니다. 체결 확률을 만들지 않습니다.'))
+                          f'판정 매물 {MIN_SELL_CLASSIFIED}건이 필요합니다. 판매 확률로 사용하지 않습니다.'))
     pct = (disappeared * 100) // classified
-    return dict(base, sell_through_pct=pct, sell_through_status='추정',
-                note='만료 전에 사라진 매물 / (그 매물 + 다음 스냅샷에 남은 매물). 판매 또는 취소이며 확정 판매가 아닙니다.')
+    return dict(base, disappearance_pct=pct, disappearance_status='추정',
+                note='연속 관측에서 만료 전 사라진 매물의 비율. 취소 포함·동일 매물 반복 집계·관측 간격 의존. 판매 확률이나 보증금 계산에 사용하지 않습니다.')
 
 
 def local_parts(iso, offset_hours):
@@ -608,12 +612,13 @@ def match_houses(db, auctionator_realm_id, ruleset=1):
 
 
 def attach_blizzard(db, cfg, items, now, auctionator_realm_id):
-    """Attach per-house series beside Auctionator. Does not replace item price."""
+    """Attach per-house evidence; market_quotes chooses a confirmed market for calculations."""
     from action_planner import liquidity, market_settings
     settings = forever_settings(cfg)
     selected = selected_house_id(cfg)
     tuned = market_settings(cfg)
     summary = {'selected_house_id': selected, 'ruleset': settings['ruleset'],
+               'market_confirmed': settings['market_confirmed'], 'latest_houses': [],
                'match': {'status': '데이터 부족', 'house_id': None, 'note': '블리자드 스냅샷이 없습니다.',
                          'candidates': [], 'tied_house_ids': []},
                'assumptions': ('단가는 즉시구매를 수량으로 나눈 내림, 또는 재료 unit_price입니다. '
@@ -626,17 +631,28 @@ def attach_blizzard(db, cfg, items, now, auctionator_realm_id):
         summary['match']['note'] = '블리자드 스냅샷 테이블이 없습니다.'
         return summary
     summary['match'] = match_houses(db, auctionator_realm_id, settings['ruleset'])
+    summary['latest_houses'] = [dict(row) for row in db.execute('''
+        WITH ranked AS (
+          SELECT s.*, h.name, h.side, ROW_NUMBER() OVER
+            (PARTITION BY s.house_id ORDER BY s.fetched_at DESC,s.id DESC) AS rank
+          FROM blizzard_snapshots s JOIN blizzard_houses h
+            ON h.house_id=s.house_id AND h.ruleset=s.ruleset WHERE s.ruleset=?)
+        SELECT * FROM ranked WHERE rank=1''', (settings['ruleset'],))]
+    house_latest = {row['house_id']: row for row in summary['latest_houses']}
     series = defaultdict(lambda: defaultdict(list))
     latest = {}
     names = {}
-    for row in db.execute('''SELECT h.house_id, h.name, h.side, s.fetched_at, p.item_id, p.min_unit_price,
+    for row in db.execute('''SELECT h.house_id, h.name, h.side, s.id AS snapshot_id, s.fetched_at,
+            s.auctions_last_modified,s.commodities_last_modified, p.item_id, p.min_unit_price,
             p.median_unit_price, p.p25_unit_price, p.quantity, p.listing_count
             FROM blizzard_item_prices p
             JOIN blizzard_snapshots s ON s.id=p.snapshot_id
             JOIN blizzard_houses h ON h.house_id=s.house_id AND h.ruleset=s.ruleset
             WHERE s.ruleset=? ORDER BY s.fetched_at, s.id''', (settings['ruleset'],)):
         names[row['house_id']] = {'name': row['name'], 'side': row['side']}
-        point = {'observed': row['fetched_at'], 'price': row['min_unit_price']}
+        point = {'observed': observation_time(row), 'price': row['min_unit_price'],
+                 'median': row['median_unit_price'], 'quantity': row['quantity'],
+                 'snapshot': row['snapshot_id'], 'imported': row['fetched_at']}
         series[row['item_id']][row['house_id']].append(point)
         latest[(row['item_id'], row['house_id'])] = row
     outcomes = _outcome_map(db, settings['ruleset']) if latest else {}
@@ -647,34 +663,53 @@ def attach_blizzard(db, cfg, items, now, auctionator_realm_id):
         blocks = []
         for house_id, points in houses.items():
             row = latest[(item_id, house_id)]
-            pseudo = {'price': row['min_unit_price'], 'observed': row['fetched_at'],
+            present = row['snapshot_id'] == house_latest[house_id]['id']
+            observed = observation_time(row)
+            pseudo = {'price': row['min_unit_price'] if present else None, 'observed': observed,
                       'history': [{'observed': point['observed'], 'price': point['price']} for point in points]}
             guard = liquidity(pseudo, now, tuned)
             disappeared, survived = outcomes.get((house_id, item_id), (0, 0))
             days = {parse_time(point['observed']).date().isoformat() for point in points}
             estimate = sell_through_estimate(disappeared, survived, len(points), len(days))
             blocks.append({'house_id': house_id, 'name': names[house_id]['name'],
+                           'snapshot_id': row['snapshot_id'], 'present_latest': present, 'history': points,
                            'side': names[house_id]['side'], 'side_label': SIDE_LABEL.get(names[house_id]['side'], '미확인'),
-                           'min_unit_price': row['min_unit_price'], 'median_unit_price': row['median_unit_price'],
-                           'p25_unit_price': row['p25_unit_price'], 'quantity': row['quantity'],
-                           'listing_count': row['listing_count'], 'observed': row['fetched_at'],
+                           'min_unit_price': row['min_unit_price'] if present else None,
+                           'median_unit_price': row['median_unit_price'] if present else None,
+                           'p25_unit_price': row['p25_unit_price'] if present else None,
+                           'quantity': row['quantity'] if present else 0,
+                           'listing_count': row['listing_count'] if present else 0, 'observed': observed,
                            'distinct_days': guard['distinct_days'], 'price_age_seconds': guard['price_age_seconds'],
                            'liquidity': guard['status'], 'liquidity_reason': guard['reason'],
                            'hourly': hourly_pattern([(point['observed'], point['price']) for point in points],
                                                     settings['offset_hours']),
-                           'sell_through_pct': estimate['sell_through_pct'],
-                           'sell_through_status': estimate['sell_through_status'],
-                           'sell_through_note': estimate['note'],
+                           'disappearance_pct': estimate['disappearance_pct'],
+                           'disappearance_status': estimate['disappearance_status'],
+                           'disappearance_note': estimate['note'],
                            'disappeared': disappeared, 'survived': survived, 'classified': estimate['classified']})
         blocks.sort(key=lambda block: block['house_id'])
         item['blizzard'] = {'houses': blocks, 'selected_house_id': selected}
     return summary
 
 
+def observation_time(row):
+    """Use the older endpoint timestamp; reusing a 304 must not refresh old quotes."""
+    times = [parse_time(row['fetched_at'])]
+    for key in ('auctions_last_modified', 'commodities_last_modified'):
+        if row[key]:
+            try:
+                value = parsedate_to_datetime(row[key])
+                if value.tzinfo is not None:
+                    times.append(value)
+            except (TypeError, ValueError, OverflowError):
+                pass
+    return min(times).isoformat()
+
+
 def summary_lines(db, cfg, auctionator_realm_id):
     settings = forever_settings(cfg)
     lines = ['', '## 블리자드 Forever 경매장', '',
-             '공식 스냅샷은 Auctionator 최저가와 별도입니다. 수익 추천으로 바꾸지 않습니다.',
+             '내 시장으로 확인한 공식 스냅샷만 계산에 사용합니다. 매물 소멸은 판매 확률로 사용하지 않습니다.',
              '기본 수집은 색인의 호드와 검은바다입니다. 얼라이언스는 설정하기 전에는 건너뜁니다.',
              f'네임스페이스 {settings["namespace"]}, 룰셋 {settings["ruleset"]}, 지역 {settings["region"]}.']
     if not _table(db, 'blizzard_snapshots'):
@@ -694,7 +729,7 @@ def summary_lines(db, cfg, auctionator_realm_id):
         lines.append(f"추정 경매장 {matched['house_id']}, 중앙 상대오차 {matched['median_relative_error_bp']}bp, "
                      f"겹친 아이템 {matched['shared_items']}개. 확정이 아닙니다.")
     selected = selected_house_id(cfg)
-    lines.append('오늘 할 일의 체결 추정에 쓰는 경매장: ' + (str(selected) if selected else '없음. 여러 경매장을 자동으로 고르지 않습니다.'))
+    lines.append('계산용 공식 시장 확인: ' + (str(settings['house_id']) if settings['market_confirmed'] else '미확인. Auctionator 관측 유지.') + ' · 소멸률은 활동 참고 전용입니다.')
     lines.append(f'소멸 추정 기준: 스냅샷 {MIN_SELL_SNAPSHOTS}개, 서로 다른 날 {MIN_SELL_DISTINCT_DAYS}일, '
                  f'판정 매물 {MIN_SELL_CLASSIFIED}건. 시간대 기준: 스냅샷 {MIN_HOURLY_SNAPSHOTS}개, '
                  f'{MIN_HOURLY_DAYS}일, 시각 {MIN_HOURLY_DISTINCT_HOURS}개. 모자라면 데이터 부족.')

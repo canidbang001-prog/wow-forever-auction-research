@@ -53,7 +53,7 @@ ForeverDB / Wowhead ─ 정적 근거 ─┘           출처 · 빌드 · 조�
 
 ## 빠른 시작
 
-Python **3.10 이상**, 표준 라이브러리만 사용합니다. 테스트는 저장소의 `tests/`에 있습니다. `python3 -m unittest discover -s tests`로 바로 실행합니다. `source.zip`은 저장소보다 낡은 스냅샷입니다. 다시 만드는 스크립트는 없고, 압축을 풀어 현재 소스나 `tests/`를 대체하지 않습니다.
+Python **3.10 이상**, 표준 라이브러리만 사용합니다. 테스트는 저장소의 `tests/`에 있습니다. `python3 -m unittest discover -s tests`로 바로 실행합니다. `source.zip`은 이번 수정 소스와 테스트를 포함합니다.
 
 ```powershell
 Copy-Item config.forever.example.json config.forever.json
@@ -136,7 +136,7 @@ CSV 보강: `python import_vendors.py --config config.forever.json vendor_offers
 
 현재 Forever 입력인 Auctionator `m`은 마지막 최저가이며 `a`는 하루 최대 수량입니다. **가중 중위가·현재 수량·경매 수가 없으므로 Forever 리포트는 조사표와 데이터 부족 사유를 보여주며 수익 추천을 생성하지 않습니다.** 제작·퀘스트 용도는 수요 근거이며 판매량으로 환산하지 않습니다.
 
-구매 묶음·재료 ID/수량·결과 수량이 확인되어야 원가를 계산할 수 있습니다. Blizzard recipe ID, craft spell ID, 도안 item ID, 결과물 item ID는 별도 열입니다. 리테일 `known_recipes.txt`는 Blizzard recipe ID 목록, Forever 조사표는 `spell:` 목록으로 필터합니다. 수익 추천은 필요한 시세 통계가 추가로 필요합니다. 오늘 할 일의 공식 순이익은 보증금 조건과 체결 확률이 모두 있을 때만 기대 보증금 손실을 뺍니다. 설정이 null이면 데이터 부족이며 0으로 빼지 않습니다. 사용자가 `listing_cost.sell_through_pct`를 적으면 그 값이 우선입니다. 비어 있고, 경매장 번호를 하나 지정했으며, 그 경매장의 블리자드 이력이 기준을 넘을 때만 소멸 추정(판매 또는 취소, 확정 판매 아님)을 채웁니다. 기준 미만이면 그대로 데이터 부족입니다. 이 식은 Forever 보증금 공식이 아닙니다. 중립 경매장 수수료도 따로 만들지 않습니다. 이동·학습 비용은 계속 별도입니다. 기본값과 키 이름은 `config.forever.example.json`과 [MARKET.md](MARKET.md)에 있습니다.
+구매 묶음·재료 ID/수량·결과 수량이 확인되어야 원가를 계산할 수 있습니다. Blizzard recipe ID, craft spell ID, 도안 item ID, 결과물 item ID는 별도 열입니다. 리테일 `known_recipes.txt`는 Blizzard recipe ID 목록, Forever 조사표는 `spell:` 목록으로 필터합니다. 수익 추천은 필요한 시세 통계가 추가로 필요합니다. 오늘 할 일의 가정 순이익은 보증금 조건과 체결 확률이 모두 있을 때만 기대 보증금 손실을 뺍니다. 설정이 null이면 데이터 부족이며 0으로 빼지 않습니다. 사용자가 `listing_cost.sell_through_pct`를 적은 경우에만 판매 확률 시나리오로 사용합니다. 비어 있으면 데이터 부족입니다. 소멸 비율은 이 값을 대신하지 않습니다. 이 식은 Forever 보증금 공식이 아닙니다. 중립 경매장 수수료도 따로 만들지 않습니다. 이동·학습 비용은 계속 별도입니다. 기본값과 키 이름은 `config.forever.example.json`과 [MARKET.md](MARKET.md)에 있습니다.
 
 ## 파일 구성과 검증
 
@@ -145,7 +145,7 @@ CSV 보강: `python import_vendors.py --config config.forever.json vendor_offers
 | `sync_static.py`, `forever_api.py`, `static_parsers.py`, `static_store.py` | 수집·인증 API·캐시·파싱·증거·마이그레이션 |
 | `import_auctionator.py`, `savedvariables.py` | Lua/CBOR 데이터를 실행하지 않고 읽기 |
 | `collect_api.py`, `sync_recipes.py` | 한국 리테일 공식 API (`dynamic-kr`) |
-| `blizzard_collector.py` | WoW Forever KR 공식 경매장 스냅샷 (`dynamic-forever-kr`) |
+| `blizzard_collector.py`, `market_quotes.py` | Forever 경매장 수집 경로(실응답 미검증), 확인한 시장 가격 연결 |
 | `analyze.py`, `forever_report.py` | 리테일 기회 분석 / Forever 조사표 |
 | `import_vendors.py` | 여러 판매처 CSV 추가·수정 |
 | `common.py`, `schema.sql`, `static_schema.sql` | 설정·SQLite·스키마 |
@@ -168,46 +168,32 @@ schtasks /Create /TN "WoW Forever Static" /SC WEEKLY /D SUN /ST 04:00 /TR '"C:\P
 0 4 * * 0 /usr/bin/python3 /path/project/sync_static.py --config /path/project/config.forever.json --provider foreverdb_api --catalog-only --max-requests 1100
 ```
 
-주간 실행 한 번으로 대기열 전체가 끝나지는 않습니다. 초기 수집은 제한된 묶음을 반복 실행하고 패치 직후에는 `--patch`로 갱신합니다. 블리자드 수집은 10분마다(`*/10`) 확인합니다. 요청에 `If-Modified-Since`를 보내고, `Last-Modified`가 이전 스냅샷과 같거나 304이면 가격 행은 다시 넣지 않고 확인한 사실만 남깁니다. 라이브 DB와 `.env`는 저장소 밖에 둡니다.
+주간 실행 한 번으로 대기열 전체가 끝나지는 않습니다. 초기 수집은 제한된 묶음을 반복 실행하고 패치 직후에는 `--patch`로 갱신합니다. 블리자드 수집의 실제 응답·시장 ID 검증을 마친 뒤에만 10분 주기 예시를 등록합니다. 요청에 `If-Modified-Since`를 보내고, `Last-Modified`가 이전 스냅샷과 같거나 304이면 가격 행은 다시 넣지 않고 확인한 사실만 남깁니다. 라이브 DB와 `.env`는 저장소 밖에 둡니다.
 
-## 블리자드 Forever 경매장 수집
+## Blizzard 수집 상태와 내 시장 연결
 
-게임 안 검색 없이 공식 경매장 시각별 가격을 남기는 경로입니다. 사용자 시장은 한국, PvP, 호드입니다. 어느 호드 경매장 번호가 내 서버인지는 응답만으로 알 수 없으므로 기본값은 번호를 고정하지 않습니다.
+`blizzard_collector.py`의 Forever 경로는 **실응답 미검증**입니다. 2026-11-12 공개 [리테일 API 문서](https://community.developer.battle.net/documentation/world-of-warcraft/game-data-apis), [클래식 API 문서](https://community.developer.battle.net/documentation/world-of-warcraft-classic/game-data-apis), [클래식 네임스페이스](https://community.developer.battle.net/documentation/world-of-warcraft-classic/guides/namespaces)를 확인했으나 코드의 `/data/wow/ruleset/{ruleset}/auctions/...`와 `dynamic-forever-kr`를 찾지 못했습니다. 이 사실만으로 지원 여부를 단정하지 않습니다. 실제 KR 색인·매물 응답을 확인하기 전까지 운영 수집기로 검증됐다고 보지 마세요. 클래식·리테일 경로로 임의 대체하지 않습니다.
 
-1. [Battle.net 개발자 포털](https://develop.battle.net/)에서 클라이언트(Client)를 만듭니다. Client ID와 Client Secret을 받습니다. 이 값은 OAuth `client_credentials`용이며 ForeverDB `fdb_` 키가 아닙니다. 포털 화면에만 두고 저장소·채팅·리포트에 붙이지 않습니다.
-2. 저장소 밖의 env 파일에 이름만 적습니다. 예제의 값은 비워 둡니다.
-
-```
-BNET_CLIENT_ID=
-BNET_CLIENT_SECRET=
-```
-
-3. `config.forever.example.json`을 복사해 `blizzard_forever`를 확인합니다. `ruleset` 1, `namespace` `dynamic-forever-kr`, `locale` `ko_KR`, `region` `kr`이 기본입니다. `house_ids`가 빈 배열이면 색인에서 이름이 호드 또는 검은바다인 경매장을 모두 수집합니다. 118번 이후라도 이름에 맞으면 포함합니다. 얼라이언스는 `include_alliance`를 true로 하거나 `house_ids` / `--houses`에 번호를 적기 전에는 매물을 받지 않습니다. 색인에 없는 번호는 만들지 않습니다. `house_id` 하나, 또는 `house_ids`가 정확히 하나일 때만 그 경매장의 소멸 추정을 오늘 할 일에 넣습니다. 여러 경매장이면 비교 결과를 돈 계산에 자동으로 넣지 않습니다.
-4. 라이브 DB는 저장소 밖에 둡니다. `blizzard_forever.db_path`가 null이면 프로젝트 `db_path`를 쓰므로, 박스에서 돌릴 때는 `--db`로 저장소 밖 파일을 지정합니다.
+Battle.net API는 [개발자 포털 API Access](https://community.developer.battle.net/access/clients)에서 발급받은 `BNET_CLIENT_ID`와 `BNET_CLIENT_SECRET`을 `.env`에 넣습니다. ForeverDB의 `fdb_` 키와는 별개입니다. [공식 시작 안내](https://community.developer.battle.net/documentation/guides/getting-started)를 참고하세요. 인증값은 저장소나 출력에 넣지 않습니다.
 
 ```bash
-python3 blizzard_collector.py --config config.forever.json --env /path/outside/bnet.env --db /path/outside/forever-ah.db
+python blizzard_collector.py --config config.forever.json
 ```
 
-토큰은 `POST https://oauth.battle.net/token` (`grant_type=client_credentials`)입니다. 색인은 `GET https://kr.api.blizzard.com/data/wow/ruleset/1/auctions/index?namespace=dynamic-forever-kr&locale=ko_KR` 입니다. 경매장마다 비재료 `/data/wow/ruleset/1/auctions/{id}` 와 재료 `/data/wow/ruleset/1/auctions/{id}/commodities` 를 받습니다. `auctions` 필드가 없거나 null이면 빈 경매장으로 저장하고 중단하지 않습니다. 429·5xx는 최대 3회, 대기 30초 한도, 요청 시간 제한 60초입니다. 로그에는 경매장 번호, 건수, Last-Modified, 생략, 오류 종류만 남기고 토큰·비밀·Authorization 헤더는 남기지 않습니다.
+수집 DB는 `config.db_path`와 같아야 화면에서 함께 읽습니다. 별도의 `blizzard_forever.db_path`나 `--db`로 수집했다면, 화면 실행에도 동일한 DB를 명시해야 합니다. 실제 색인에서 한국 PvP 호드 경매장 ID를 확인한 다음에만 `blizzard_forever.house_id`를 설정하고 `market_confirmed`를 `true`로 바꾸세요. `house_ids`는 수집 대상이며 자동 시장 확인이 아닙니다. 가격 유사도 매칭도 자동 확인에 쓰지 않습니다.
 
-재료 단가는 응답의 `unit_price`입니다. 나누지 않습니다. 그 외 매물의 단가는 `floor(buyout / quantity)`입니다. 올림하지 않습니다. 즉시구매가 없거나 입찰만 있거나 정수가 아니면 그 매물은 집계와 소멸 추적에서 뺍니다. 스냅샷마다 아이템별로 최저 단가, 수량 가중 하위 중위, 하위 25%, 수량 합, 단가가 있는 매물 수를 남깁니다.
-
-`fetched_at`은 UTC입니다. API `Last-Modified`가 있으면 같이 저장합니다. 경매·재료 양쪽이 그 경매장의 마지막 스냅샷과 같으면 스냅샷은 생략하고 확인 행만 남깁니다. 헤더가 없으면 생략하지 않습니다.
-
-내 Auctionator 수입이 있으면 `--match`가 같은 아이템 최저가의 하위 중앙 상대오차(기저점)로 가까운 경매장 번호를 추정합니다. 네트워크를 쓰지 않습니다. 겹치는 아이템이 5개 미만이거나 Auctionator 가격이 없으면 번호를 고르지 않고 데이터 부족이라고 말합니다. 결과는 추정이며 서버 확정이 아닙니다.
+확인된 시장을 활성화하면 최근 전체 API 스냅샷의 해당 시장 가격을 사용합니다. 최신 스냅샷에 없는 품목·오래된 가격은 과거 Auctionator 가격으로 대체하지 않습니다. 원가에는 가격 단계별 수량을 사용하고 비재료 매물은 묶음 전체를 구매합니다. 현재 단가는 명세대로 정수 내림이며 원본 buyout의 나눗셈 잔액은 보존하지 않습니다. 등록 가정은 현재 최저가와 최근 7일 스냅샷별 수량 가중 중위가의 하위 중위 중 낮은 값에서 1동 차감입니다. 이는 전체 기간의 모든 매물을 합친 가중 중위가나 실제 체결가가 아닙니다.
 
 ```bash
-python3 blizzard_collector.py --config config.forever.json --db /path/outside/forever-ah.db --match
+python blizzard_collector.py --config config.forever.json --match
+python blizzard_collector.py --config config.forever.example.json --db /tmp/forever-fixture.db --fixture tests/fixtures/blizzard_forever.json
 ```
 
-네트워크 없는 샘플은 별도 DB가 필요합니다.
+두 번째 명령은 합성 데이터 검증 전용입니다. 기본 수집 대상은 색인에 표시된 호드·검은바다이며 경매장별로 저장합니다. `auctions` 배열 누락/null은 파싱 실패로 처리하고 이전 스냅샷을 보존합니다. 빈 배열만 명시적인 빈 시장입니다. 소멸 비율은 판매/취소를 구분하지 못하고 관측 간격에 영향을 받으므로 **판매 확률·보증금 기대 손실에 넣지 않습니다**. 보증금 계산에는 사용자가 명시한 판매 확률 시나리오만 사용합니다.
 
-```bash
-python3 blizzard_collector.py --config config.forever.json --db /tmp/forever-fixture.db --fixture tests/fixtures/blizzard_forever.json
-```
+제안 수량은 기본 1묶음/제작 1회입니다. 총예산의 품목 집중 한도와 시험 상한을 모두 통과해야 하며, 예산이 커도 시험 수량은 늘리지 않습니다. 비용·순이익·제안 수량은 모두 같은 1회 거래 기준입니다. `capital_required`는 매입 자금이며 등록 보증금은 별도 칸입니다.
 
-소멸 추정·시간대·경매장 비교의 기준은 [MARKET.md](MARKET.md), 테이블은 [DATABASE.md](DATABASE.md)에 있습니다. Auctionator 최저가는 그대로 두고 공식 스냅샷은 옆에 보여 줍니다.
+회귀 검증·실데이터 적용 범위는 [FIX_VERIFICATION.md](FIX_VERIFICATION.md)에 기록했습니다. `source.zip`도 현재 소스와 테스트로 다시 생성했습니다. Python 표준 라이브러리로 실행하며, JavaScript 스모크 테스트는 PATH의 Node 또는 `NODE_BINARY`를 사용합니다.
 
 ---
 
