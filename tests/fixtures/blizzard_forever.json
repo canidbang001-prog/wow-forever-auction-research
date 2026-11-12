@@ -24,11 +24,11 @@
   },
   "/data/wow/ruleset/1/auctions/112": {
     "last_modified": "Wed, 12 Nov 2026 00:12:00 GMT",
-    "body": {}
+    "body": {"auctions": []}
   },
   "/data/wow/ruleset/1/auctions/112/commodities": {
     "last_modified": "Wed, 12 Nov 2026 00:12:01 GMT",
-    "body": {"auctions": null}
+    "body": {"auctions": []}
   },
   "/data/wow/ruleset/1/auctions/113": {
     "last_modified": "Wed, 12 Nov 2026 00:13:00 GMT",
@@ -55,11 +55,11 @@
   },
   "/data/wow/ruleset/1/auctions/115": {
     "last_modified": "Wed, 12 Nov 2026 00:15:00 GMT",
-    "body": {}
+    "body": {"auctions": []}
   },
   "/data/wow/ruleset/1/auctions/115/commodities": {
     "last_modified": "Wed, 12 Nov 2026 00:15:01 GMT",
-    "body": {"auctions": null}
+    "body": {"auctions": []}
   },
   "/data/wow/ruleset/1/auctions/116": {
     "last_modified": "Wed, 12 Nov 2026 00:16:00 GMT",
