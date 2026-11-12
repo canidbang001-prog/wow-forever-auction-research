@@ -9,6 +9,61 @@ from common import (AppError, connect, config_path, get_meta, load_config, main_
                     parser, positive_int, run, set_meta, snapshot, utcnow)
 from savedvariables import price_database
 
+DAILY_PARSER_VERSION = 1
+
+
+def daily_rows(data, offset):
+    """Installed Auctionator Database/Mixin.lua GetPriceHistory: l or h, h, a.
+
+    h is the highest observed minimum; a is daily MAX availability, never sales.
+    Keep quantity-only days with NULL prices instead of manufacturing a quote.
+    """
+    epoch = datetime(2020, 1, 1, tzinfo=timezone(timedelta(hours=offset)))
+    rows = []
+    for key, item in data.items():
+        if not re.fullmatch(r"[1-9]\d*", str(key)) or not isinstance(item, dict):
+            continue
+        maps = []
+        for field in ('l', 'h', 'a'):
+            value = item.get(field, {})
+            if value == []:
+                value = {}
+            if not isinstance(value, dict):
+                raise AppError('Auctionator 일별 이력 형식이 변경되었습니다. 저장을 중단합니다.')
+            if any(not re.fullmatch(r'\d+', str(day)) for day in value):
+                raise AppError('Auctionator 관측일 형식을 확인할 수 없습니다.')
+            maps.append({int(day): v for day, v in value.items()})
+        lows, highs, amounts = maps
+        for day in sorted(set(lows) | set(highs) | set(amounts)):
+            high, quantity = highs.get(day), amounts.get(day)
+            low = lows.get(day, high)
+            if (any(v is not None and not positive_int(v) for v in (low, high))
+                    or quantity is not None and (type(quantity) is not int or quantity < 0)
+                    or low is not None and high is not None and low > high):
+                raise AppError('Auctionator 일별 가격/수량 값이 올바르지 않습니다.')
+            try:
+                observed = (epoch + timedelta(days=day)).astimezone(timezone.utc).isoformat(timespec='seconds')
+            except (OverflowError, ValueError):
+                raise AppError('Auctionator 관측일 범위 오류') from None
+            rows.append((int(key), day, observed, low, high, quantity))
+    return sorted(rows)
+
+
+def store_daily(db, realm_id, snapshot_id, data, rows, daily, stat, skipped):
+    digest = hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+    cursor = db.execute('''INSERT OR IGNORE INTO auctionator_imports
+        (realm_id,snapshot_id,fetched_at,file_mtime_ns,content_sha256,parser_version,
+         latest_count,daily_count,skipped_count) VALUES (?,?,?,?,?,?,?,?,?)''',
+        (realm_id, snapshot_id, utcnow(), str(stat.st_mtime_ns), digest, DAILY_PARSER_VERSION,
+         len(rows), len(daily), skipped))
+    if not cursor.rowcount:
+        return None
+    import_id = cursor.lastrowid
+    db.executemany('INSERT OR IGNORE INTO items(item_id) VALUES (?)', ((r[0],) for r in daily))
+    db.executemany('INSERT INTO auctionator_daily VALUES (?,?,?,?,?,?,?)',
+                   ((import_id, *r) for r in daily))
+    return import_id
+
 
 def latest_rows(data, offset):
     # Source/Constants/Main.lua: SCAN_DAY_0 = local 2020-01-01 00:00.
@@ -113,7 +168,8 @@ def main():
             raise AppError("Auctionator 서버 키와 connected-realm 이름이 일치하지 않습니다.")
         state_key = "auctionator:" + hashlib.sha256(str(path).encode()).hexdigest() + f":{realm_id}:{key}"
         stat = path.stat()
-        if get_meta(db, state_key) == str(stat.st_mtime_ns):
+        if (get_meta(db, state_key) == str(stat.st_mtime_ns)
+                and get_meta(db, state_key+':daily_version') == str(DAILY_PARSER_VERSION)):
             print("Auctionator: mtime 동일, 파일 읽기 생략")
             return
         raw, stat = read_file(path)
@@ -121,12 +177,18 @@ def main():
         if key not in data:
             raise AppError("설정된 서버 키가 SavedVariables에 없습니다. --inspect로 확인하세요.")
         rows, skipped = latest_rows(data[key], cfg["scan_timezone_offset_hours"])
+        daily = daily_rows(data[key], cfg['scan_timezone_offset_hours'])
         digest = hashlib.sha256(json.dumps(rows, sort_keys=True).encode()).hexdigest()
         with db:
             sid = snapshot(db, "auctionator", realm_id, utcnow(), "sha256:" + digest, rows)
+            evidence_snapshot = sid or db.execute('''SELECT id FROM snapshots WHERE source='auctionator'
+                AND realm_id=? AND last_modified=?''', (realm_id, 'sha256:'+digest)).fetchone()[0]
+            imported = store_daily(db, realm_id, evidence_snapshot, data[key], rows, daily, stat, skipped)
             set_meta(db, state_key, stat.st_mtime_ns)
+            set_meta(db, state_key+':daily_version', DAILY_PARSER_VERSION)
         print(f"Auctionator: {len(rows)}개 가격, {skipped}개 제외, " +
               (f"스냅샷 #{sid}" if sid else "가격 내용 동일, 중복 제외"))
+        print(f"일별 이력: {len(daily)}개 · " + (f"파일 근거 #{imported}" if imported else '내용 동일, 중복 제외'))
 
 
 if __name__ == "__main__":

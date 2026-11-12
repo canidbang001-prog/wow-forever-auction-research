@@ -8,6 +8,19 @@
   "scan_timezone_offset_hours": 9,
   "known_recipes": "known_recipes.txt",
   "static_cache": "cache/static",
-  "static_seed_items": [6328, 4592, 6289, 5482],
-  "character_key": "default"
+  "static_seed_items": [
+    6328,
+    4592,
+    6289,
+    5482
+  ],
+  "character_key": "default",
+  "market_region": "kr",
+  "market_ruleset": "PvP",
+  "market_faction": "unknown",
+  "character_level": null,
+  "character_professions": {
+    "primary": {},
+    "secondary": {}
+  }
 }

@@ -27,6 +27,22 @@ CREATE TABLE IF NOT EXISTS prices (
  observed_at TEXT, PRIMARY KEY(snapshot_id,item_id)
 );
 CREATE INDEX IF NOT EXISTS price_item ON prices(item_id,snapshot_id);
+CREATE TABLE IF NOT EXISTS auctionator_imports (
+ id INTEGER PRIMARY KEY, realm_id INTEGER NOT NULL REFERENCES realms(realm_id),
+ snapshot_id INTEGER NOT NULL REFERENCES snapshots(id), fetched_at TEXT NOT NULL,
+ file_mtime_ns TEXT NOT NULL, content_sha256 TEXT NOT NULL, parser_version INTEGER NOT NULL,
+ latest_count INTEGER NOT NULL, daily_count INTEGER NOT NULL, skipped_count INTEGER NOT NULL,
+ UNIQUE(realm_id,content_sha256,parser_version)
+);
+CREATE TABLE IF NOT EXISTS auctionator_daily (
+ import_id INTEGER NOT NULL REFERENCES auctionator_imports(id) ON DELETE CASCADE,
+ item_id INTEGER NOT NULL REFERENCES items(item_id), scan_day INTEGER NOT NULL,
+ observed_at TEXT NOT NULL, low_price INTEGER CHECK(low_price > 0),
+ high_price INTEGER CHECK(high_price > 0), max_quantity INTEGER CHECK(max_quantity >= 0),
+ PRIMARY KEY(import_id,item_id,scan_day),
+ CHECK(low_price IS NULL OR high_price IS NULL OR low_price <= high_price)
+);
+CREATE INDEX IF NOT EXISTS auctionator_daily_item ON auctionator_daily(item_id,scan_day);
 CREATE TABLE IF NOT EXISTS recipes (
  recipe_id INTEGER PRIMARY KEY, name TEXT NOT NULL, profession TEXT NOT NULL,
  skill_tier TEXT NOT NULL, crafted_item_id INTEGER REFERENCES items(item_id),

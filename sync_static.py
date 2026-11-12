@@ -165,15 +165,17 @@ def store_response(db,job,body,cache_dir,fetched_at=None):
         return False
 
 
-def collect(db,cfg,budget,cache_dir,interval=1.1,offline=False,provider=None,catalog_only=False):
+def collect(db,cfg,budget,cache_dir,interval=1.1,offline=False,provider=None,catalog_only=False,urls=None):
     cache_dir.mkdir(parents=True,exist_ok=True)
     attempted=ok=0
+    selected = '' if urls is None else ' AND url IN ('+','.join('?' for _ in urls)+')'
     while attempted<budget:
         now=utcnow()
         job=db.execute("""SELECT * FROM static_queue WHERE (state='pending' OR
             (state='retry' AND retry_at<=?)) AND (? IS NULL OR provider=?)
             AND (?=0 OR kind IN ('api_meta','api_docs','api_items','api_vendors','api_vendor','api_professions','api_profession','api_quest'))
-            ORDER BY priority,url LIMIT 1""",(now,provider,provider,int(catalog_only))).fetchone()
+            """+selected+" ORDER BY priority,url LIMIT 1",
+            (now,provider,provider,int(catalog_only),*(urls or []))).fetchone()
         if job is None: break
         if get_meta(db,'provider_blocked:'+job['provider']) and job['kind']!='api_docs':
             db.execute("UPDATE static_queue SET state='blocked',error=? WHERE url=?",
@@ -228,6 +230,7 @@ def main():
     p.add_argument('--status',action='store_true',help='counts only; no network')
     p.add_argument('--provider',choices=['wowhead','foreverdb','foreverdb_api'],help='only this provider')
     p.add_argument('--catalog-only',action='store_true',help='API catalogues, professions and vendor inventories; skip per-item details')
+    p.add_argument('--url',action='append',help='only these already discovered queue URLs; repeat to select several')
     p.add_argument('--reparse-cache',action='store_true',help='replay latest cached API responses, preserving original retrieval dates')
     p.add_argument('--retry-errors',action='store_true')
     p.add_argument('--retry-provider',choices=['wowhead','foreverdb','foreverdb_api'],help='explicit retry after provider access restored')
@@ -240,6 +243,11 @@ def main():
     if args.status: print(summary(db));return
     with run(db,'sync_static'):
         initialise(db,cfg,args.force,args.patch,args.api_probe)
+        if args.url:
+            for url in args.url:
+                job=db.execute('SELECT * FROM static_queue WHERE url=?',(url,)).fetchone()
+                if not job or not valid_url(url,job['provider']):
+                    raise AppError('--url은 이미 발견한 유효한 대기열 URL이어야 합니다.')
         cache_dir=cfg['base_dir']/cfg.get('static_cache','cache/static')
         if args.reparse_cache:
             jobs=db.execute("SELECT * FROM static_queue WHERE provider='foreverdb_api' AND kind NOT IN ('api_docs','api_probe')").fetchall()
@@ -277,7 +285,7 @@ def main():
         blocked_until=get_meta(db,'static_retry_after')
         if blocked_until and utcnow()<blocked_until:
             print(f'Retry-After 대기: {blocked_until} 이후 재실행');return
-        attempted,ok=collect(db,cfg,args.max_requests,cache_dir,provider=args.provider,catalog_only=args.catalog_only)
+        attempted,ok=collect(db,cfg,args.max_requests,cache_dir,provider=args.provider,catalog_only=args.catalog_only,urls=args.url)
         print(f'이번 실행 {attempted}개 응답 / {ok}개 파싱. 미완료 큐는 다음 실행에서 재개.')
         print(summary(db))
         if not os.environ.get('FOREVERDB_API_KEY'):

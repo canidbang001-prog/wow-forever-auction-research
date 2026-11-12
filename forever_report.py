@@ -34,6 +34,11 @@ def report(db,cfg,now):
             '하루 판매 추정: 계산 불가. 반복 수입으로 같은 관측을 새 판매량으로 만들지 않습니다.','']
     n=db.execute('SELECT COUNT(*) FROM items').fetchone()[0]
     priced=db.execute('SELECT COUNT(DISTINCT item_id) FROM prices').fetchone()[0]
+    daily=db.execute('''SELECT COUNT(*),COUNT(DISTINCT d.item_id) FROM auctionator_daily d
+        JOIN auctionator_imports f ON f.id=d.import_id WHERE f.realm_id=?''',
+        (int(rid) if rid else -999,)).fetchone()
+    lines += [f'일별 가격 범위·최대 수량 이력 {daily[0]:,}행 / {daily[1]:,}개 품목 보관. '
+              '일별 최저가 범위는 화면의 7일 비교 기준에 반영하며 최대 수량을 판매량으로 환산하지 않습니다.', '']
     lines += [f'아이템 {n:,}개 보관, 가격을 한 번이라도 관측한 아이템 {priced:,}개. 미관측 아이템은 추천 제외.','',
               '## 내 최저가와 판매처 연결 (수익 추천 아님)','',
               '| 아이템 | 판매 NPC / 위치 | 사이트 표시 가격 | 내 마지막 최저가 | 스냅샷 / 관측일 | 확인 상태 |',
