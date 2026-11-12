@@ -26,7 +26,8 @@ def report(db,cfg,now):
            f'생성 UTC: {now.isoformat()} · 로컬 시장: {cfg["auctionator_realm_key"]} (DB realm_id={rid or "미수집"})','',
            f'현재 확인한 공급자 빌드: {current_build or "미확인"}. 다른 빌드의 근거는 갱신 전 자료이며 현재 라이브 수치로 확정하지 않습니다.',
            '이 시장 키는 SavedVariables 내부 식별자입니다. 실제 지역·서버·진영을 확인한 Blizzard 서버 ID가 아닙니다.',
-           '판매가 = min(최근 가중 중위가, 현재 최저가), 순이익 = 판매가 × 판매 개수 × 0.95 − 구매 비용.',
+           '수수료 규칙: 순이익 = floor(판매가 × 판매 개수 × 0.95) − 구매 비용. 이 조사표는 가중 중위가·현재 수량이 없어 그 식으로 수익 추천을 만들지 않습니다.',
+           '조건부 소량 시험만 market_dashboard의 오늘 할 일에서 계산합니다. 마지막 최저가 자체를 기대 판매가로 쓰지 않습니다.',
            '제작·퀘스트 용도는 수요 근거이며 판매량으로 환산하지 않습니다.','']
     for title in ('제작 차익','상점템 되팔기','7일/30일 저점 매수'):
         lines += [f'## {title}','',
@@ -118,4 +119,6 @@ def report(db,cfg,now):
               '이름이 같다는 이유로 ID를 연결하지 않습니다. 수량·재료 ID가 빠진 제작은 원가 계산에서 제외합니다.',
               'ForeverDB 인증 API에서 제작 ID·수량, NPC 좌표·구매 묶음·통화를 수집합니다. '
               '퀘스트 요구 아이템은 확인한 API 응답에서 제공되지 않았으므로 라이브 요구 관계로 보완할 수 없습니다.']
+    from blizzard_collector import summary_lines
+    lines += summary_lines(db, cfg, int(rid) if rid else None)
     return '\n'.join(lines)+'\n'

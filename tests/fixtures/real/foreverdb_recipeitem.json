@@ -1,0 +1,11 @@
+{
+  "name": "foreverdb_recipeitem",
+  "url": "https://foreverdb.net/item/6328",
+  "final_url": "https://foreverdb.net/item/6328",
+  "status": 200,
+  "bytes": 49781,
+  "fetched_at": "2026-11-11T11:52:52.719241+00:00",
+  "original_sha256": "072284081470053f90ba1e82c4f37ce2ddcf923744a4e3bc0d05a655e71f9345",
+  "fixture_sha256": "00bab160d705e5e21f5cb21b71a2bfd57fae9537905fcf298159828825a0e5d5",
+  "extraction": "main element only"
+}

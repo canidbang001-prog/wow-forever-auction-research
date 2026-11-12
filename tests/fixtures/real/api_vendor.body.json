@@ -1,0 +1,112 @@
+{
+  "data": {
+    "id": 54,
+    "name": "Corina Steele",
+    "title": "Weaponsmith",
+    "side": "Alliance",
+    "zone": "Elwynn Forest",
+    "mapId": 1429,
+    "x": 41.6,
+    "y": 65.8,
+    "seenInForever": true,
+    "source": "Seen in WoW Forever by ForeverDB players",
+    "reputationFaction": {
+      "id": 72,
+      "name": "Stormwind"
+    },
+    "sells": [
+      {
+        "itemId": 2488,
+        "name": "Gladius",
+        "price": 536,
+        "stack": 1,
+        "pricePerItem": 536.0,
+        "limited": false,
+        "limitedStockCount": null,
+        "classicData": false,
+        "seenInForever": true
+      },
+      {
+        "itemId": 2489,
+        "name": "Two-handed Sword",
+        "price": 342,
+        "stack": 1,
+        "pricePerItem": 342.0,
+        "limited": false,
+        "limitedStockCount": null,
+        "classicData": false,
+        "seenInForever": true
+      },
+      {
+        "itemId": 2490,
+        "name": "Tomahawk",
+        "price": 540,
+        "stack": 1,
+        "pricePerItem": 540.0,
+        "limited": false,
+        "limitedStockCount": null,
+        "classicData": false,
+        "seenInForever": true
+      },
+      {
+        "itemId": 2491,
+        "name": "Large Axe",
+        "price": 484,
+        "stack": 1,
+        "pricePerItem": 484.0,
+        "limited": false,
+        "limitedStockCount": null,
+        "classicData": false,
+        "seenInForever": true
+      },
+      {
+        "itemId": 2492,
+        "name": "Cudgel",
+        "price": 284,
+        "stack": 1,
+        "pricePerItem": 284.0,
+        "limited": false,
+        "limitedStockCount": null,
+        "classicData": false,
+        "seenInForever": true
+      },
+      {
+        "itemId": 2493,
+        "name": "Wooden Mallet",
+        "price": 701,
+        "stack": 1,
+        "pricePerItem": 701.0,
+        "limited": false,
+        "limitedStockCount": null,
+        "classicData": false,
+        "seenInForever": true
+      },
+      {
+        "itemId": 2494,
+        "name": "Stiletto",
+        "price": 401,
+        "stack": 1,
+        "pricePerItem": 401.0,
+        "limited": false,
+        "limitedStockCount": null,
+        "classicData": false,
+        "seenInForever": true
+      },
+      {
+        "itemId": 2495,
+        "name": "Walking Stick",
+        "price": 504,
+        "stack": 1,
+        "pricePerItem": 504.0,
+        "limited": false,
+        "limitedStockCount": null,
+        "classicData": false,
+        "seenInForever": true
+      }
+    ]
+  },
+  "meta": {
+    "build": "1.60.1.70862",
+    "attribution": "Data from ForeverDB.net (https://foreverdb.net). You must credit ForeverDB.net, with a visible link to https://foreverdb.net, wherever you show this data."
+  }
+}

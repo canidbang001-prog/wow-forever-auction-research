@@ -1,0 +1,11 @@
+{
+  "name": "foreverdb_cooking",
+  "url": "https://foreverdb.net/profession/cooking",
+  "final_url": "https://foreverdb.net/profession/cooking",
+  "status": 200,
+  "bytes": 53667,
+  "fetched_at": "2026-11-11T11:50:44.546058+00:00",
+  "original_sha256": "087744fbdb1a356ea7286ec353b806bab770368cb2427dfbfaaf6d183c9711b7",
+  "fixture_sha256": "1bbd1b874ea33337b48dc4e06b548ca3a74aacd747be09286458f7970741d95f",
+  "extraction": "main element only"
+}

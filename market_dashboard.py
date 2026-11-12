@@ -95,6 +95,7 @@ def build_market(db, cfg, now=None):
     coverage.update(latest_prices=sum(i['price'] is not None for i in items.values()),
                     stored_price_rows=sum(len(i['snapshots']) for i in items.values()),
                     static_items=len(items), snapshots=len(snapshots))
+    from action_planner import canon_side
     offers, by_item, seen = [], defaultdict(list), set()
     rows = db.execute('''SELECT v.*,c.eligibility FROM current_vendor_offers v
             LEFT JOIN character_offer_checks c ON c.offer_id=v.offer_id AND c.character_key=?
@@ -106,7 +107,7 @@ def build_market(db, cfg, now=None):
              'npc': r['npc_name'], 'zone': r['zone'], 'x': r['x'], 'y': r['y'],
              'price': r['price_copper'], 'qty': r['purchase_qty'], 'basis': r['price_basis'],
              'stock': r['stock_state'], 'stock_qty': r['stock_quantity'],
-             'costs': decode(r['currency_costs']), 'side': conditions.get('npc_side'),
+             'costs': decode(r['currency_costs']), 'side': canon_side(conditions.get('npc_side')),
              'reputation': decode(r['reputation_required'], r['reputation_required']) if r['reputation_required'] and r['reputation_required'][0] in '[{' else r['reputation_required'],
              'discount': decode(r['reputation_discount_faction']), 'faction': r['faction'],
              'source': r['source'], 'url': r['source_url'],
@@ -126,6 +127,8 @@ def build_market(db, cfg, now=None):
 
     known = known_spells(cfg)
     profile = character_profile(cfg)
+    from action_planner import market_settings, sell_scenario
+    tuned = market_settings(cfg)
     crafts, spells = [], set()
     # Each recipe's reagents and outputs come from the SAME document, never a cross-build union.
     facts = defaultdict(list)
@@ -162,11 +165,16 @@ def build_market(db, cfg, now=None):
         qty = output['quantity'] if output else None
         price = items.get(iid, {}).get('price')
         margin = price * qty * 95 // 100 - cost if price is not None and qty and cost is not None else None
+        # Last-min margin is not the 20% stress test. Stress is a separate labeled figure.
+        scenario = sell_scenario(items.get(iid), now, tuned['haircut_pct'], tuned['max_price_age_days']) if iid else None
+        stress_margin = scenario['stress_price'] * qty * 95 // 100 - cost if scenario and qty and cost is not None else None
         makes = payload.get('makes') or {}
         skill = payload.get('skill') or {}
         crafts.append({'spell': spell, 'name': r['label'], 'profession': details.get('profession'),
                        'item': iid, 'qty': qty, 'yield_min': makes.get('min'), 'yield_max': makes.get('max'),
-                       'price': price, 'cost': cost, 'margin': margin, 'materials': shopping, 'missing': missing,
+                       'price': price, 'cost': cost, 'margin': margin, 'stress_margin': stress_margin,
+                       'stress_price': scenario['stress_price'] if scenario else None,
+                       'margin_basis': 'last_min_price', 'materials': shopping, 'missing': missing,
                        'complete': complete, 'known': known is not None, 'url': r['source_url'],
                        'build': r['game_build'], 'date': r['fetched_at'], 'verification': r['verification'],
                        'skill': skill.get('orange') if skill.get('orangeSource') == 'client' else None,
@@ -181,12 +189,15 @@ def build_market(db, cfg, now=None):
             if reagent['id'] in items:
                 items[reagent['id']]['craft_uses'] += 1
 
+    from blizzard_collector import attach_blizzard
+    blizzard = attach_blizzard(db, cfg, items, now, rid)
     data = {'generated': now.isoformat(timespec='seconds'), 'build': build,
             'mode': get_meta(db, 'data_mode'), 'market': {'region': cfg.get('market_region', 'unknown'),
             'ruleset': cfg.get('market_ruleset', cfg.get('auctionator_realm_key', '')),
             'faction': cfg.get('market_faction', 'unknown'), 'realm_id': rid,
             'scope_note': '지역·플레이 진영은 사용자 지정. SavedVariables의 PvP 키 자체에는 진영이 없어 기존 가격 기록을 진영별로 자동 분리하지 않습니다.'},
             'snapshots': snapshots, 'items': list(items.values()), 'vendors': offers, 'crafts': crafts,
+            'blizzard': blizzard,
             'known_recipes': known is not None, 'character': profile, 'coverage': coverage,
             'metrics': {'weighted_median': None, 'sales_per_day': None, 'recommended_deals': 0}}
     from action_planner import plan_actions

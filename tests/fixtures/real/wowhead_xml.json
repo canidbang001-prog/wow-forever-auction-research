@@ -1,0 +1,11 @@
+{
+  "name": "wowhead_xml",
+  "url": "https://www.wowhead.com/forever/ko/item=6328&xml",
+  "final_url": "https://www.wowhead.com/forever/ko/item=6328&xml",
+  "status": 200,
+  "bytes": 3234,
+  "fetched_at": "2026-11-11T11:50:44.584642+00:00",
+  "original_sha256": "24beb16be61b3a4e9e09d18def442c9d8d12cae2dfa02fa6b746cfcff360da32",
+  "fixture_sha256": "24beb16be61b3a4e9e09d18def442c9d8d12cae2dfa02fa6b746cfcff360da32",
+  "extraction": "unaltered XML"
+}

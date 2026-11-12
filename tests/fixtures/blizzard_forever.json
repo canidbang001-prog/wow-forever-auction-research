@@ -1,0 +1,106 @@
+{
+  "/data/wow/ruleset/1/auctions/index": {
+    "last_modified": "Wed, 12 Nov 2026 00:00:00 GMT",
+    "body": {
+      "auctions": [
+        {"id": 110, "name": "얼라이언스 경매장"},
+        {"id": 112, "name": {"ko_KR": "얼라이언스", "en_US": "Alliance"}},
+        {"id": 113, "name": "호드 경매장"},
+        {"id": 115, "name": "호드"},
+        {"id": 116, "name": "검은바다 경매장"},
+        {"id": 119, "name": {"ko_KR": "호드", "en_US": "Horde"}},
+        {"id": 121, "name": "Northshire"},
+        {"id": 125, "name": "검은바다"}
+      ]
+    }
+  },
+  "/data/wow/ruleset/1/auctions/110": {
+    "last_modified": "Wed, 12 Nov 2026 00:10:00 GMT",
+    "body": {"auctions": []}
+  },
+  "/data/wow/ruleset/1/auctions/110/commodities": {
+    "last_modified": "Wed, 12 Nov 2026 00:10:01 GMT",
+    "body": {"auctions": []}
+  },
+  "/data/wow/ruleset/1/auctions/112": {
+    "last_modified": "Wed, 12 Nov 2026 00:12:00 GMT",
+    "body": {}
+  },
+  "/data/wow/ruleset/1/auctions/112/commodities": {
+    "last_modified": "Wed, 12 Nov 2026 00:12:01 GMT",
+    "body": {"auctions": null}
+  },
+  "/data/wow/ruleset/1/auctions/113": {
+    "last_modified": "Wed, 12 Nov 2026 00:13:00 GMT",
+    "body": {
+      "auctions": [
+        {"id": 10, "item": {"id": 8}, "buyout": 1000, "quantity": 4, "time_left": "LONG"},
+        {"id": 11, "item": {"id": 8}, "bid": 500, "quantity": 1, "time_left": "LONG"},
+        {"id": 12, "item": {"id": 8}, "buyout": 10, "quantity": 3, "time_left": "LONG", "bid": 1},
+        {"id": 13, "item": {"id": 8}, "buyout": 100, "quantity": 0, "time_left": "LONG"},
+        {"id": 14, "item": {"id": 8}, "quantity": 1, "time_left": "LONG", "bid": 50}
+      ]
+    }
+  },
+  "/data/wow/ruleset/1/auctions/113/commodities": {
+    "last_modified": "Wed, 12 Nov 2026 00:13:01 GMT",
+    "body": {
+      "auctions": [
+        {"id": 1, "item": {"id": 7}, "quantity": 2, "unit_price": 100, "time_left": "VERY_LONG"},
+        {"id": 2, "item": {"id": 7}, "quantity": 2, "unit_price": 200, "time_left": "VERY_LONG"},
+        {"id": 3, "item": {"id": 7}, "quantity": 4, "unit_price": 300, "time_left": "VERY_LONG"},
+        {"id": 4, "item": {"id": 7}, "quantity": 8, "unit_price": 800, "time_left": "VERY_LONG"}
+      ]
+    }
+  },
+  "/data/wow/ruleset/1/auctions/115": {
+    "last_modified": "Wed, 12 Nov 2026 00:15:00 GMT",
+    "body": {}
+  },
+  "/data/wow/ruleset/1/auctions/115/commodities": {
+    "last_modified": "Wed, 12 Nov 2026 00:15:01 GMT",
+    "body": {"auctions": null}
+  },
+  "/data/wow/ruleset/1/auctions/116": {
+    "last_modified": "Wed, 12 Nov 2026 00:16:00 GMT",
+    "body": {"auctions": []}
+  },
+  "/data/wow/ruleset/1/auctions/116/commodities": {
+    "last_modified": "Wed, 12 Nov 2026 00:16:01 GMT",
+    "body": {
+      "auctions": [
+        {"id": 1, "item": {"id": 9}, "quantity": 20, "unit_price": 80, "time_left": "LONG"},
+        {"id": 2, "item": {"id": 9}, "quantity": 1, "unit_price": 80.5, "time_left": "LONG"}
+      ]
+    }
+  },
+  "/data/wow/ruleset/1/auctions/119": {
+    "last_modified": "Wed, 12 Nov 2026 00:19:00 GMT",
+    "body": {
+      "auctions": [
+        {"id": 1, "item": {"id": 9}, "buyout": 90, "quantity": 2, "time_left": {"type": "MEDIUM"}},
+        {"id": 2, "item": {"id": 9}, "buyout": true, "quantity": 1, "time_left": "LONG"}
+      ]
+    }
+  },
+  "/data/wow/ruleset/1/auctions/119/commodities": {
+    "last_modified": "Wed, 12 Nov 2026 00:19:01 GMT",
+    "body": {"auctions": []}
+  },
+  "/data/wow/ruleset/1/auctions/121": {
+    "last_modified": "Wed, 12 Nov 2026 00:21:00 GMT",
+    "body": {"auctions": []}
+  },
+  "/data/wow/ruleset/1/auctions/121/commodities": {
+    "last_modified": "Wed, 12 Nov 2026 00:21:01 GMT",
+    "body": {"auctions": []}
+  },
+  "/data/wow/ruleset/1/auctions/125": {
+    "last_modified": "Wed, 12 Nov 2026 00:25:00 GMT",
+    "body": {"auctions": []}
+  },
+  "/data/wow/ruleset/1/auctions/125/commodities": {
+    "last_modified": "Wed, 12 Nov 2026 00:25:01 GMT",
+    "body": {"auctions": []}
+  }
+}
