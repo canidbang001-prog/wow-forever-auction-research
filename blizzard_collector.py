@@ -32,6 +32,7 @@ MIN_HOURLY_DISTINCT_HOURS = 4
 MIN_HOURLY_PER_HOUR = 2
 MIN_MATCH_ITEMS = 5
 LIVE_REQUEST_INTERVAL = 0.1
+COLLECT_DEADLINE = 8 * 60
 SIDE_WORDS = (
     ('blackwater', ('검은바다', 'blackwater')),
     ('alliance', ('얼라이언스', 'alliance')),
@@ -559,7 +560,12 @@ def collect_once(db, api, cfg, house_ids=None, now=None):
         label = '호드+검은바다, 얼라이언스 제외'
     print(f'색인 {len(houses)}개, 수집 {len(chosen)}개 ({label}).', flush=True)
     failures = []
-    for house in chosen:
+    deadline = time.monotonic() + COLLECT_DEADLINE
+    for index, house in enumerate(chosen):
+        if time.monotonic() >= deadline:
+            for skipped in chosen[index:]:
+                print(f'경매장 {skipped["id"]}: 실행 시간 한도 초과로 이번 주기에서 생략', flush=True)
+            break
         try:
             collect_house(db, api, ruleset, house, fetched_at)
         except AppError as exc:

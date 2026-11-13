@@ -9,7 +9,8 @@ import tempfile
 import time
 import unittest
 from unittest.mock import patch
-from urllib.error import HTTPError
+from http.client import IncompleteRead, RemoteDisconnected
+from urllib.error import HTTPError, URLError
 
 from action_planner import plan_actions
 from blizzard_collector import (
@@ -18,8 +19,8 @@ from blizzard_collector import (
     select_houses, selected_house_id, sell_through_estimate, store_snapshot, summary_lines,
     upsert_houses,
 )
-from common import (AppError, Blizzard, DEFAULT_USER_AGENT, HTTP_ATTEMPTS, connect, ensure_items,
-                    http_json, set_meta)
+from common import (AppError, Blizzard, DEFAULT_USER_AGENT, HTTP_ATTEMPTS, HTTP_DEADLINE,
+                    connect, ensure_items, http_json, set_meta)
 from forever_report import report
 from market_dashboard import build_market
 from tests.test_actions import NOW, item
@@ -709,6 +710,71 @@ class HttpJsonTests(unittest.TestCase):
         self.assertEqual(opened.call_count, 1)
         self.assertEqual(sleep.call_count, 0)
 
+    def test_remote_disconnect_then_200_retries_and_succeeds(self):
+        responses = [
+            RemoteDisconnected('Remote end closed connection without response'),
+            _JsonResponse({'ok': True}),
+        ]
+        with patch('common.time.sleep') as sleep, patch('common.urlopen', side_effect=responses) as opened:
+            body, modified = http_json('https://kr.api.blizzard.com/data/wow/item/1', {})
+        self.assertEqual(body, {'ok': True})
+        self.assertEqual(modified, 'Wed, 12 Nov 2026 00:00:00 GMT')
+        self.assertEqual(opened.call_count, 2)
+        self.assertEqual(sleep.call_count, 1)
+
+    def test_urlerror_and_incomplete_read_are_retried(self):
+        responses = [
+            URLError(RemoteDisconnected('Remote end closed connection without response')),
+            IncompleteRead(b'{"ok":', expected=20),
+            _JsonResponse({'ok': 1}),
+        ]
+        with patch('common.time.sleep') as sleep, patch('common.urlopen', side_effect=responses):
+            body, _ = http_json('https://kr.api.blizzard.com/data/wow/item/1', {})
+        self.assertEqual(body, {'ok': 1})
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_persistent_disconnect_fails_after_max_attempts(self):
+        with patch('common.time.sleep') as sleep, \
+                patch('common.urlopen', side_effect=RemoteDisconnected('closed')) as opened:
+            with self.assertRaises(AppError) as caught:
+                http_json('https://kr.api.blizzard.com/data/wow/item/1', {})
+        message = str(caught.exception)
+        self.assertIn('네트워크', message)
+        self.assertNotIn('closed', message)
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertEqual(opened.call_count, HTTP_ATTEMPTS)
+        self.assertEqual(sleep.call_count, HTTP_ATTEMPTS - 1)
+
+    def test_slow_body_exceeding_deadline_is_retried_then_fails(self):
+        class SlowResponse:
+            headers = {'Last-Modified': 'Wed, 12 Nov 2026 00:00:00 GMT'}
+
+            def read(self, n=-1):
+                clock['t'] += HTTP_DEADLINE + 1
+                return b'{"ok":'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+        clock = {'t': 0.0}
+
+        def fake(req, timeout=60):
+            return SlowResponse()
+
+        with patch('common.time.monotonic', side_effect=lambda: clock['t']), \
+                patch('common.time.sleep') as sleep, \
+                patch('common.urlopen', side_effect=fake) as opened:
+            with self.assertRaises(AppError) as caught:
+                http_json('https://kr.api.blizzard.com/data/wow/item/1', {})
+        self.assertIn('네트워크', str(caught.exception))
+        self.assertNotIn('{"ok":', str(caught.exception))
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertEqual(opened.call_count, HTTP_ATTEMPTS)
+        self.assertEqual(sleep.call_count, HTTP_ATTEMPTS - 1)
+
 
 class UnpublishedHouseTests(Base):
     def _capture(self, fn):
@@ -899,6 +965,84 @@ class UnpublishedHouseTests(Base):
             self.assertEqual(slept.call_count, 0)
         finally:
             _restore_env(saved)
+
+    def test_persistent_disconnect_skips_one_house_and_keeps_the_other(self):
+        from blizzard_collector import ForeverAuctions
+        saved = _swap_env(BNET_CLIENT_ID=FAKE_ID, BNET_CLIENT_SECRET=FAKE_SECRET)
+        try:
+            api = ForeverAuctions(self.cfg)
+            api.request_interval = 0
+            api.token = 'fixture-token'
+            api.expires = time.time() + 3600
+            calls = []
+
+            def fake(req, timeout=60):
+                url = req.full_url
+                calls.append(url)
+                if '/auctions/116' in url and '/commodities' not in url:
+                    raise RemoteDisconnected('Remote end closed connection without response')
+                if '/auctions/index?' in url:
+                    return _JsonResponse({'auctions': [
+                        {'id': 116, 'name': '검은바다'}, {'id': 113, 'name': '호드'}]})
+                if '/auctions/113/commodities' in url:
+                    return _JsonResponse(PRICED_COMMODITIES)
+                if '/auctions/113?' in url or '/auctions/113' in url:
+                    return _JsonResponse(PRICED_AUCTIONS)
+                raise AssertionError(url.split('?', 1)[0])
+
+            buf = io.StringIO()
+            with patch('common.urlopen', side_effect=fake), patch('common.time.sleep') as sleep:
+                with redirect_stdout(buf):
+                    with self.assertRaises(AppError) as caught:
+                        collect_once(self.db, api, self.cfg, now='2026-11-14T00:00:00+00:00')
+            text = buf.getvalue()
+            message = str(caught.exception)
+            context = str(caught.exception.__context__ or '')
+            self.assertIn('116', message)
+            self.assertNotIn('113', message)
+            self.assertIn('보존했습니다', message)
+            self.assertIn('경매장 116: 오류 AppError', text)
+            self.assertIn('경매장 113', text)
+            self.assertNotIn('Remote end closed', text)
+            self.assertNotIn('Remote end closed', message)
+            for secret in (FAKE_ID, FAKE_SECRET, 'fixture-token', 'Authorization', 'Bearer'):
+                self.assertNotIn(secret, text)
+                self.assertNotIn(secret, message)
+                self.assertNotIn(secret, context)
+            failed = [url for url in calls if '/auctions/116' in url and '/commodities' not in url]
+            self.assertEqual(len(failed), HTTP_ATTEMPTS)
+            self.assertEqual(sleep.call_count, HTTP_ATTEMPTS - 1)
+            self.assertEqual([row[0] for row in self.db.execute(
+                'SELECT house_id FROM blizzard_snapshots')], [113])
+            priced = self.db.execute(
+                "SELECT min_unit_price FROM blizzard_item_prices p "
+                "JOIN blizzard_snapshots s ON s.id=p.snapshot_id "
+                "WHERE s.house_id=113 AND p.item_id=8").fetchone()
+            self.assertEqual(priced[0], 100)
+        finally:
+            _restore_env(saved)
+
+    def test_run_deadline_skips_remaining_houses_without_failing(self):
+        from blizzard_collector import ForeverAuctions
+        api = ForeverAuctions(self.cfg, sided_fixture([
+            (113, '호드', PRICED_AUCTIONS, PRICED_COMMODITIES),
+            (116, '검은바다', PRICED_AUCTIONS, {'auctions': []}),
+        ]))
+        clock = {'n': 0}
+
+        def mono():
+            clock['n'] += 1
+            return 0.0 if clock['n'] < 3 else 10_000.0
+
+        buf = io.StringIO()
+        with patch('blizzard_collector.time.monotonic', side_effect=mono), redirect_stdout(buf):
+            collect_once(self.db, api, self.cfg, now='2026-11-14T00:00:00+00:00')
+        text = buf.getvalue()
+        self.assertIn('경매장 116: 실행 시간 한도 초과로 이번 주기에서 생략', text)
+        self.assertIn('경매장 113', text)
+        self.assertNotIn('오류', text)
+        self.assertEqual([row[0] for row in self.db.execute(
+            'SELECT house_id FROM blizzard_snapshots')], [113])
 
 
 if __name__ == '__main__':
