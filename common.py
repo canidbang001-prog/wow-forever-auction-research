@@ -7,6 +7,7 @@ from email.utils import parsedate_to_datetime
 import json
 import os
 from pathlib import Path
+import random
 import sqlite3
 import sys
 import time
@@ -15,6 +16,11 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 ROOT = Path(__file__).resolve().parent
+DEFAULT_USER_AGENT = (
+    "wow-forever-auction-research/1.0 "
+    "(+https://github.com/canidbang001-prog/wow-forever-auction-research)"
+)
+HTTP_ATTEMPTS = 4
 
 
 class AppError(Exception):
@@ -143,26 +149,48 @@ def load_env(path):
             os.environ.setdefault(k.strip(), v.strip().strip("\"'"))
 
 
+def _with_user_agent(headers):
+    """Copy headers and add a default User-Agent only when the caller did not set one."""
+    merged = dict(headers or {})
+    if not any(str(name).lower() == "user-agent" for name in merged):
+        merged["User-Agent"] = DEFAULT_USER_AGENT
+    return merged
+
+
+def _retry_delay(attempt, retry_after):
+    """Exponential backoff plus jitter. A numeric Retry-After is the minimum wait, capped at 30s."""
+    text = str(retry_after).strip() if retry_after is not None else ""
+    if text.isdigit():
+        base = min(30, int(text))
+    else:
+        base = min(30, 2 ** attempt)
+    spread = base * 0.25 if base else 0.05
+    return min(30.0, base + random.uniform(0, spread))
+
+
 def http_json(url, headers, data=None):
-    """JSON request with the Battle.net retry policy. Errors omit credentials and bodies."""
-    for attempt in range(3):
+    """JSON request. Retries transient 403, 429, and 5xx. Errors omit credentials and bodies."""
+    headers = _with_user_agent(headers)
+    for attempt in range(HTTP_ATTEMPTS):
         try:
             with urlopen(Request(url, data=data, headers=headers), timeout=60) as response:
                 return json.load(response), response.headers.get("Last-Modified")
         except HTTPError as exc:
             code = exc.code
-            retry = exc.headers.get("Retry-After", "")
+            retry_after = ""
+            if exc.headers is not None:
+                retry_after = exc.headers.get("Retry-After", "") or ""
             exc.close()
             if code == 304:
                 return None, None
-            if code == 429 or code >= 500:
-                if attempt < 2:
-                    time.sleep(min(30, int(retry)) if retry.isdigit() else 2 ** attempt)
-                    continue
+            transient = code == 403 or code == 429 or code >= 500
+            if transient and attempt + 1 < HTTP_ATTEMPTS:
+                time.sleep(_retry_delay(attempt, retry_after))
+                continue
             raise AppError(f"Blizzard HTTP {code} (인증 정보/응답 본문 생략)") from None
         except (URLError, TimeoutError):
-            if attempt < 2:
-                time.sleep(2 ** attempt)
+            if attempt + 1 < HTTP_ATTEMPTS:
+                time.sleep(_retry_delay(attempt, ""))
                 continue
             raise AppError("Blizzard 네트워크 연결 실패") from None
     raise AppError("Blizzard 요청 실패")
