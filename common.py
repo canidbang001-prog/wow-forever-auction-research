@@ -4,10 +4,12 @@ import base64
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+import http.client
 import json
 import os
 from pathlib import Path
 import random
+import socket
 import sqlite3
 import sys
 import time
@@ -21,6 +23,9 @@ DEFAULT_USER_AGENT = (
     "(+https://github.com/canidbang001-prog/wow-forever-auction-research)"
 )
 HTTP_ATTEMPTS = 4
+HTTP_SOCKET_TIMEOUT = 60
+HTTP_DEADLINE = 120
+HTTP_CHUNK = 64 * 1024
 
 
 class AppError(Exception):
@@ -168,13 +173,65 @@ def _retry_delay(attempt, retry_after):
     return min(30.0, base + random.uniform(0, spread))
 
 
+def _retryable_network(exc):
+    """True for short-lived transport errors that are safe to retry without logging bodies."""
+    if isinstance(exc, HTTPError):
+        return False
+    if isinstance(exc, URLError):
+        reason = exc.reason
+        if isinstance(reason, Exception):
+            return _retryable_network(reason) or isinstance(reason, OSError)
+        return True
+    return isinstance(exc, (
+        TimeoutError,
+        socket.timeout,
+        ConnectionError,
+        http.client.RemoteDisconnected,
+        http.client.IncompleteRead,
+    ))
+
+
+def _try_set_timeout(response, timeout):
+    """Best-effort: cap the next body read by the remaining request deadline."""
+    fp = getattr(response, "fp", None)
+    raw = getattr(fp, "raw", None) if fp is not None else None
+    sock = getattr(raw, "_sock", None) if raw is not None else None
+    if sock is not None and hasattr(sock, "settimeout"):
+        try:
+            sock.settimeout(timeout)
+        except (OSError, TypeError, AttributeError):
+            return
+
+
+def _read_body(response, deadline):
+    """Read the response body in chunks and abort if the overall deadline is exceeded."""
+    chunks = []
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("request deadline exceeded")
+        _try_set_timeout(response, min(HTTP_SOCKET_TIMEOUT, remaining))
+        chunk = response.read(HTTP_CHUNK)
+        if not chunk:
+            break
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
 def http_json(url, headers, data=None):
-    """JSON request. Retries transient 403, 429, and 5xx. Errors omit credentials and bodies."""
+    """JSON request. Retries transient 403/429/5xx and short network drops. Errors omit credentials and bodies."""
     headers = _with_user_agent(headers)
     for attempt in range(HTTP_ATTEMPTS):
+        deadline = time.monotonic() + HTTP_DEADLINE
         try:
-            with urlopen(Request(url, data=data, headers=headers), timeout=60) as response:
-                return json.load(response), response.headers.get("Last-Modified")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("request deadline exceeded")
+            timeout = min(HTTP_SOCKET_TIMEOUT, remaining)
+            with urlopen(Request(url, data=data, headers=headers), timeout=timeout) as response:
+                last_modified = response.headers.get("Last-Modified")
+                raw = _read_body(response, deadline)
+            return json.loads(raw), last_modified
         except HTTPError as exc:
             code = exc.code
             retry_after = ""
@@ -188,7 +245,9 @@ def http_json(url, headers, data=None):
                 time.sleep(_retry_delay(attempt, retry_after))
                 continue
             raise AppError(f"Blizzard HTTP {code} (인증 정보/응답 본문 생략)") from None
-        except (URLError, TimeoutError):
+        except Exception as exc:
+            if not _retryable_network(exc):
+                raise
             if attempt + 1 < HTTP_ATTEMPTS:
                 time.sleep(_retry_delay(attempt, ""))
                 continue
