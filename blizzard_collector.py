@@ -31,6 +31,7 @@ MIN_HOURLY_DAYS = 2
 MIN_HOURLY_DISTINCT_HOURS = 4
 MIN_HOURLY_PER_HOUR = 2
 MIN_MATCH_ITEMS = 5
+LIVE_REQUEST_INTERVAL = 0.1
 SIDE_WORDS = (
     ('blackwater', ('검은바다', 'blackwater')),
     ('alliance', ('얼라이언스', 'alliance')),
@@ -361,6 +362,9 @@ class ForeverAuctions:
         self.expires = 0
         self.client_id = ''
         self.secret = ''
+        self._paced_at = None
+        # Fixture runs stay instant. Live calls leave a short gap so a tight loop is less likely to trip a WAF.
+        self.request_interval = 0.0 if self.fixture is not None else LIVE_REQUEST_INTERVAL
         if self.fixture is None:
             if env_path:
                 load_env(Path(env_path))
@@ -369,6 +373,18 @@ class ForeverAuctions:
             self.secret = os.environ.get('BNET_CLIENT_SECRET', '')
             if not self.client_id or not self.secret:
                 raise AppError('.env에 BNET_CLIENT_ID / BNET_CLIENT_SECRET을 설정하세요. 값은 로그에 남기지 않습니다.')
+
+    def _pace(self):
+        interval = self.request_interval or 0
+        if interval <= 0:
+            return
+        now = time.monotonic()
+        if self._paced_at is not None:
+            wait = interval - (now - self._paced_at)
+            if wait > 0:
+                time.sleep(wait)
+                now = time.monotonic()
+        self._paced_at = now
 
     def get(self, path, modified=None):
         if self.fixture is not None:
@@ -380,6 +396,7 @@ class ForeverAuctions:
                 return None, stamp
             return entry.get('body'), stamp
         if not self.token or time.time() >= self.expires:
+            self._pace()
             basic = base64.b64encode((self.client_id + ':' + self.secret).encode()).decode()
             body, _ = http_json('https://oauth.battle.net/token',
                                 {'Authorization': 'Basic ' + basic,
@@ -399,6 +416,7 @@ class ForeverAuctions:
             headers['If-Modified-Since'] = modified
         query = f'namespace={self.settings["namespace"]}&locale={self.settings["locale"]}'
         url = f'https://{self.settings["region"]}.api.blizzard.com{path}?{query}'
+        self._pace()
         return http_json(url, headers)
 
 
@@ -454,6 +472,19 @@ def _unchanged(body, stamp, previous):
     return bool(previous and stamp and stamp == previous)
 
 
+def _listings_unpublished(body):
+    """A 200 JSON object whose auctions field is missing or null. Not a confirmed empty market."""
+    return isinstance(body, dict) and body.get('auctions') is None
+
+
+def _skip_unpublished(db, house_id, ruleset, fetched_at, auctions_lm, commodities_lm):
+    with db:
+        check_id = record_check(db, house_id, ruleset, fetched_at, auctions_lm, commodities_lm,
+                                0, None, '매물 목록 없음')
+    print(f'경매장 {house_id}: 매물 목록 없음, 스냅샷 생략 (확인 #{check_id})', flush=True)
+    return None
+
+
 def collect_house(db, api, ruleset, house, fetched_at):
     house_id = house['id']
     previous = _latest_snapshot(db, house_id, ruleset)
@@ -472,20 +503,32 @@ def collect_house(db, api, ruleset, house, fetched_at):
             check_id = record_check(db, house_id, ruleset, fetched_at, auctions_lm, commodities_lm, 0, None,
                                     'Last-Modified 동일')
         print(f'경매장 {house_id}: Last-Modified 동일 ({auctions_lm or "없음"} / {commodities_lm or "없음"}), '
-              f'스냅샷 생략 (확인 #{check_id})')
+              f'스냅샷 생략 (확인 #{check_id})', flush=True)
         return None
     if auctions_same:
         auction_rows = _load_listings(db, previous['id'], 'auction')
         n_auctions = previous['n_auctions']
         auctions_lm = auctions_lm or prev_auctions
+        auctions_unpublished = False
+    elif _listings_unpublished(auctions_body):
+        auction_rows, n_auctions, auctions_unpublished = None, None, True
     else:
         auction_rows, n_auctions = parse_listings(auctions_body, 'auction')
+        auctions_unpublished = False
     if commodities_same:
         commodity_rows = _load_listings(db, previous['id'], 'commodity')
         n_commodities = previous['n_commodities']
         commodities_lm = commodities_lm or prev_commodities
+        commodities_unpublished = False
+    elif _listings_unpublished(commodities_body):
+        commodity_rows, n_commodities, commodities_unpublished = None, None, True
     else:
         commodity_rows, n_commodities = parse_listings(commodities_body, 'commodity')
+        commodities_unpublished = False
+    # One unpublished side is enough to skip. Storing the other side would invent a 0-count
+    # market or replace a real snapshot with a partial one.
+    if auctions_unpublished or commodities_unpublished:
+        return _skip_unpublished(db, house_id, ruleset, fetched_at, auctions_lm, commodities_lm)
     listings = auction_rows + commodity_rows
     with db:
         snapshot_id = store_snapshot(db, house_id, ruleset, fetched_at, listings, n_auctions, n_commodities,
@@ -493,7 +536,7 @@ def collect_house(db, api, ruleset, house, fetched_at):
         record_check(db, house_id, ruleset, fetched_at, auctions_lm, commodities_lm, 1, snapshot_id, '저장')
     print(f'경매장 {house_id} {SIDE_LABEL.get(house["side"], house["side"])}: 스냅샷 #{snapshot_id}, '
           f'경매 {n_auctions}, 재료 {n_commodities}, 단가 있음 {len(listings)}, '
-          f'Last-Modified 경매 {auctions_lm or "없음"} / 재료 {commodities_lm or "없음"}')
+          f'Last-Modified 경매 {auctions_lm or "없음"} / 재료 {commodities_lm or "없음"}', flush=True)
     return snapshot_id
 
 
@@ -514,14 +557,14 @@ def collect_once(db, api, cfg, house_ids=None, now=None):
         label = '호드+검은바다+얼라이언스'
     else:
         label = '호드+검은바다, 얼라이언스 제외'
-    print(f'색인 {len(houses)}개, 수집 {len(chosen)}개 ({label}).')
+    print(f'색인 {len(houses)}개, 수집 {len(chosen)}개 ({label}).', flush=True)
     failures = []
     for house in chosen:
         try:
             collect_house(db, api, ruleset, house, fetched_at)
         except AppError as exc:
             failures.append(house['id'])
-            print(f'경매장 {house["id"]}: 오류 {type(exc).__name__}')
+            print(f'경매장 {house["id"]}: 오류 {type(exc).__name__}', flush=True)
     if failures:
         raise AppError(f'수집 실패 경매장 {failures}; 성공한 스냅샷은 보존했습니다.')
     return chosen
@@ -717,12 +760,18 @@ def summary_lines(db, cfg, auctionator_realm_id):
         return lines
     snaps = db.execute('SELECT COUNT(*) FROM blizzard_snapshots WHERE ruleset=?', (settings['ruleset'],)).fetchone()[0]
     checks = db.execute('SELECT COUNT(*) FROM blizzard_checks WHERE ruleset=?', (settings['ruleset'],)).fetchone()[0]
-    skipped = db.execute('SELECT COUNT(*) FROM blizzard_checks WHERE ruleset=? AND stored=0',
-                         (settings['ruleset'],)).fetchone()[0]
+    skipped = db.execute(
+        "SELECT COUNT(*) FROM blizzard_checks WHERE ruleset=? AND stored=0 AND note=?",
+        (settings['ruleset'], 'Last-Modified 동일')).fetchone()[0]
+    unpublished = db.execute(
+        "SELECT COUNT(*) FROM blizzard_checks WHERE ruleset=? AND stored=0 AND note=?",
+        (settings['ruleset'], '매물 목록 없음')).fetchone()[0]
     if snaps == 0:
         lines.append('저장한 스냅샷이 없습니다. 데이터 부족.')
     else:
         lines.append(f'스냅샷 {snaps}개, 확인 {checks}회, Last-Modified가 같아 생략한 확인 {skipped}회.')
+    if unpublished:
+        lines.append(f'매물 목록이 없어 스냅샷을 생략한 확인 {unpublished}회. 빈 시장으로 저장하지 않았습니다.')
     matched = match_houses(db, auctionator_realm_id, settings['ruleset'])
     lines.append(matched['note'])
     if matched.get('house_id'):

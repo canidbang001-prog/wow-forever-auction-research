@@ -1,4 +1,7 @@
 """Synthetic regressions for source conflicts, stale/missing quotes and trial sizing."""
+from contextlib import redirect_stdout
+import io
+
 from action_planner import plan_actions, position_plan, market_settings
 from blizzard_collector import store_snapshot, upsert_houses, forever_settings, collect_house
 from common import AppError, ensure_items, set_meta
@@ -65,9 +68,17 @@ class MarketQuoteTests(Base):
         class BadResponse:
             def get(self, path, modified=None):
                 return ({'auctions': []} if path.endswith('/commodities') else {}), 'new'
-        with self.assertRaises(AppError):
-            collect_house(self.db, BadResponse(), 1, {'id': 113, 'side': 'horde'}, NOW.isoformat())
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self.assertIsNone(collect_house(
+                self.db, BadResponse(), 1, {'id': 113, 'side': 'horde'}, NOW.isoformat()))
+        text = buf.getvalue()
+        self.assertIn('매물 목록 없음', text)
+        self.assertNotIn('오류', text)
         self.assertEqual(self.db.execute('SELECT COUNT(*) FROM blizzard_snapshots').fetchone()[0], 1)
+        self.assertEqual(self.db.execute('SELECT min_unit_price FROM blizzard_item_prices').fetchone()[0], 100)
+        check = self.db.execute('SELECT stored, note, snapshot_id FROM blizzard_checks').fetchone()
+        self.assertEqual((check['stored'], check['note'], check['snapshot_id']), (0, '매물 목록 없음', None))
 
     def test_old_last_modified_cannot_be_rejuvenated_by_fetch_time(self):
         self.snapshot('2026-11-12T00:00:00+00:00',

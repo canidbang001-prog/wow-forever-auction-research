@@ -6,8 +6,10 @@ import os
 from pathlib import Path
 import sqlite3
 import tempfile
+import time
 import unittest
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 from action_planner import plan_actions
 from blizzard_collector import (
@@ -16,7 +18,8 @@ from blizzard_collector import (
     select_houses, selected_house_id, sell_through_estimate, store_snapshot, summary_lines,
     upsert_houses,
 )
-from common import AppError, Blizzard, connect, ensure_items, set_meta
+from common import (AppError, Blizzard, DEFAULT_USER_AGENT, HTTP_ATTEMPTS, connect, ensure_items,
+                    http_json, set_meta)
 from forever_report import report
 from market_dashboard import build_market
 from tests.test_actions import NOW, item
@@ -45,6 +48,58 @@ def write_cfg(root):
 def priced(kind, listing_id, item_id, price, qty, time_left):
     return {'kind': kind, 'listing_id': listing_id, 'item_id': item_id,
             'unit_price': price, 'quantity': qty, 'time_left': time_left}
+
+
+class _JsonResponse:
+    def __init__(self, payload, last_modified='Wed, 12 Nov 2026 00:00:00 GMT'):
+        self.headers = {'Last-Modified': last_modified}
+        self._raw = json.dumps(payload).encode()
+
+    def read(self, _n=-1):
+        data, self._raw = self._raw, b''
+        return data
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+def _http_error(code, body=b'{"error":"BODY-MARKER"}', headers=None):
+    return HTTPError('https://kr.api.blizzard.com/data/wow/connected-realm', code, 'err',
+                     {} if headers is None else dict(headers), io.BytesIO(body))
+
+
+def _swap_env(**pairs):
+    saved = {key: os.environ.get(key) for key in pairs}
+    for key, value in pairs.items():
+        if value is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = value
+    return saved
+
+
+def _restore_env(saved):
+    _swap_env(**saved)
+
+
+def sided_fixture(rows, auction_lm='Wed, 12 Nov 2026 00:13:00 GMT',
+                  commodity_lm='Wed, 12 Nov 2026 00:13:01 GMT'):
+    fixture = {INDEX: {'body': {'auctions': [
+        {'id': house_id, 'name': name} for house_id, name, _auction, _commodity in rows]}}}
+    for house_id, _name, auction_body, commodity_body in rows:
+        fixture[f'/data/wow/ruleset/1/auctions/{house_id}'] = {'last_modified': auction_lm, 'body': auction_body}
+        fixture[commodity_path(1, house_id)] = {'last_modified': commodity_lm, 'body': commodity_body}
+    return fixture
+
+
+LINKS = {'_links': {'self': {'href': 'https://example.invalid/auctions'}}}
+PRICED_AUCTIONS = {'auctions': [
+    {'id': 10, 'item': {'id': 8}, 'buyout': 400, 'quantity': 4, 'time_left': 'LONG'}]}
+PRICED_COMMODITIES = {'auctions': [
+    {'id': 1, 'item': {'id': 7}, 'quantity': 2, 'unit_price': 50, 'time_left': 'LONG'}]}
 
 
 class ParseTests(unittest.TestCase):
@@ -565,6 +620,285 @@ class CliTests(unittest.TestCase):
         self.assertEqual(note.split(': ', 1)[1], 'AppError')
         self.assertNotIn('샘플', note)
         db.close()
+
+
+class HttpJsonTests(unittest.TestCase):
+    def test_403_then_200_retries_and_keeps_user_agent(self):
+        seen = []
+        responses = [
+            _http_error(403, headers={'X-Test': 'HEADER-MARKER'}),
+            _JsonResponse({'auctions': []}, 'Wed, 12 Nov 2026 01:00:00 GMT'),
+        ]
+
+        def fake(req, timeout=60):
+            seen.append(req.get_header('User-agent'))
+            item = responses.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+        caller = {}
+        with patch('common.time.sleep') as sleep, patch('common.urlopen', side_effect=fake):
+            body, modified = http_json('https://kr.api.blizzard.com/data/wow/item/1', caller)
+        self.assertEqual(body, {'auctions': []})
+        self.assertEqual(modified, 'Wed, 12 Nov 2026 01:00:00 GMT')
+        self.assertEqual(seen, [DEFAULT_USER_AGENT, DEFAULT_USER_AGENT])
+        self.assertEqual(caller, {})
+        self.assertEqual(sleep.call_count, 1)
+
+    def test_exhausted_403_omits_body_headers_and_credentials(self):
+        body = b'{"error":"BODY-MARKER","access_token":"fixture-token","client_secret":"SECRET-MARKER"}'
+        responses = [_http_error(403, body=body, headers={'X-Test': 'HEADER-MARKER', 'Retry-After': '0'})
+                     for _ in range(HTTP_ATTEMPTS)]
+        with patch('common.time.sleep') as sleep, patch('common.urlopen', side_effect=responses):
+            with self.assertRaises(AppError) as caught:
+                http_json('https://kr.api.blizzard.com/data/wow/item/1',
+                          {'Authorization': 'Bearer fixture-token'})
+        message = str(caught.exception)
+        self.assertIn('403', message)
+        for secret in ('BODY-MARKER', 'HEADER-MARKER', 'fixture-token', 'SECRET-MARKER',
+                       'Authorization', 'Bearer', 'client_secret'):
+            self.assertNotIn(secret, message)
+        self.assertIsNone(caught.exception.__cause__)
+        self.assertEqual(sleep.call_count, HTTP_ATTEMPTS - 1)
+
+    def test_429_honors_retry_after_and_503_uses_backoff(self):
+        responses = [
+            _http_error(429, headers={'Retry-After': '2'}),
+            _JsonResponse({'ok': 1}),
+            _http_error(503),
+            _JsonResponse({'ok': 2}),
+        ]
+        sleeps = []
+        with patch('common.random.uniform', return_value=0), \
+                patch('common.time.sleep', side_effect=sleeps.append), \
+                patch('common.urlopen', side_effect=responses):
+            first, _ = http_json('https://kr.api.blizzard.com/data/wow/item/1', {})
+            second, _ = http_json('https://kr.api.blizzard.com/data/wow/item/1', {})
+        self.assertEqual((first, second), ({'ok': 1}, {'ok': 2}))
+        self.assertEqual(sleeps, [2, 1])
+
+    def test_400_401_and_404_are_not_retried(self):
+        for code in (400, 401, 404):
+            with patch('common.time.sleep') as sleep, \
+                    patch('common.urlopen', side_effect=_http_error(code)) as opened:
+                with self.assertRaises(AppError) as caught:
+                    http_json('https://kr.api.blizzard.com/data/wow/item/1', {})
+            self.assertIn(str(code), str(caught.exception))
+            self.assertEqual(opened.call_count, 1)
+            self.assertEqual(sleep.call_count, 0)
+
+    def test_explicit_user_agent_is_preserved(self):
+        seen = []
+
+        def fake(req, timeout=60):
+            seen.append(req.get_header('User-agent'))
+            return _JsonResponse({'ok': True})
+
+        custom = {'user-agent': 'CustomAgent/9'}
+        with patch('common.urlopen', side_effect=fake):
+            http_json('https://kr.api.blizzard.com/data/wow/item/1', custom)
+            http_json('https://kr.api.blizzard.com/data/wow/item/1', {'User-Agent': 'Other/1'})
+        self.assertEqual(seen, ['CustomAgent/9', 'Other/1'])
+        self.assertEqual(custom, {'user-agent': 'CustomAgent/9'})
+
+    def test_304_returns_none_without_retry(self):
+        with patch('common.time.sleep') as sleep, \
+                patch('common.urlopen', side_effect=_http_error(304, body=b'BODY-MARKER')) as opened:
+            self.assertEqual(http_json('https://kr.api.blizzard.com/data/wow/item/1', {}), (None, None))
+        self.assertEqual(opened.call_count, 1)
+        self.assertEqual(sleep.call_count, 0)
+
+
+class UnpublishedHouseTests(Base):
+    def _capture(self, fn):
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            result = fn()
+        return result, buf.getvalue()
+
+    def test_missing_auctions_array_skips_without_failing_the_run(self):
+        from blizzard_collector import ForeverAuctions
+        fixture = sided_fixture([
+            (113, '호드', PRICED_AUCTIONS, PRICED_COMMODITIES),
+            (115, '호드', dict(LINKS), dict(LINKS)),
+            (118, '호드', {'id': 118}, dict(LINKS)),
+            (120, '호드', {'auctions': None, '_links': {}}, {'auctions': []}),
+            (125, '호드', {'auctions': []}, {'auctions': []}),
+        ])
+        api = ForeverAuctions(self.cfg, fixture)
+        _chosen, text = self._capture(lambda: collect_once(
+            self.db, api, self.cfg, now='2026-11-13T00:00:00+00:00'))
+        self.assertNotIn('오류', text)
+        for house_id in (115, 118, 120):
+            self.assertIn(f'경매장 {house_id}: 매물 목록 없음, 스냅샷 생략 (확인 #', text)
+        self.assertEqual(sorted(row[0] for row in self.db.execute(
+            'SELECT house_id FROM blizzard_snapshots')), [113, 125])
+        empty = self.db.execute(
+            'SELECT n_auctions, n_commodities, n_priced FROM blizzard_snapshots WHERE house_id=125').fetchone()
+        self.assertEqual((empty['n_auctions'], empty['n_commodities'], empty['n_priced']), (0, 0, 0))
+        price = self.db.execute('''SELECT p.item_id, p.min_unit_price FROM blizzard_item_prices p
+            JOIN blizzard_snapshots s ON s.id=p.snapshot_id WHERE s.house_id=113 ORDER BY p.item_id''').fetchall()
+        self.assertEqual([(row['item_id'], row['min_unit_price']) for row in price], [(7, 50), (8, 100)])
+        notes = {row['house_id']: (row['stored'], row['note'], row['snapshot_id']) for row in self.db.execute(
+            'SELECT house_id, stored, note, snapshot_id FROM blizzard_checks')}
+        for house_id in (115, 118, 120):
+            self.assertEqual(notes[house_id][0], 0)
+            self.assertEqual(notes[house_id][1], '매물 목록 없음')
+            self.assertIsNone(notes[house_id][2])
+        self.assertEqual(notes[125][0], 1)
+        self.assertEqual(notes[113][0], 1)
+
+    def test_later_missing_auctions_keeps_the_priced_snapshot(self):
+        from blizzard_collector import ForeverAuctions
+        fixture = sided_fixture([(113, '호드', PRICED_AUCTIONS, PRICED_COMMODITIES)])
+        api = ForeverAuctions(self.cfg, fixture)
+        self._capture(lambda: collect_once(self.db, api, self.cfg, now='2026-11-12T00:00:00+00:00'))
+        fixture['/data/wow/ruleset/1/auctions/113'] = {
+            'last_modified': 'Thu, 13 Nov 2026 00:00:00 GMT', 'body': {'id': 113}}
+        fixture[commodity_path(1, 113)] = {
+            'last_modified': 'Thu, 13 Nov 2026 00:00:01 GMT', 'body': dict(LINKS)}
+        _chosen, text = self._capture(lambda: collect_once(
+            self.db, api, self.cfg, now='2026-11-13T00:00:00+00:00'))
+        self.assertIn('경매장 113: 매물 목록 없음, 스냅샷 생략 (확인 #', text)
+        self.assertNotIn('오류', text)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM blizzard_snapshots').fetchone()[0], 1)
+        prices = self.db.execute(
+            'SELECT item_id, min_unit_price FROM blizzard_item_prices ORDER BY item_id').fetchall()
+        self.assertEqual([(row['item_id'], row['min_unit_price']) for row in prices], [(7, 50), (8, 100)])
+        self.assertEqual(self.db.execute(
+            "SELECT COUNT(*) FROM blizzard_checks WHERE note='매물 목록 없음' AND stored=0").fetchone()[0], 1)
+
+    def test_explicit_empty_arrays_still_store_an_empty_snapshot(self):
+        from blizzard_collector import ForeverAuctions
+        api = ForeverAuctions(self.cfg, sided_fixture([
+            (115, '호드', {'auctions': []}, {'auctions': []})]))
+        _chosen, text = self._capture(lambda: collect_once(
+            self.db, api, self.cfg, now='2026-11-13T00:00:00+00:00'))
+        self.assertNotIn('매물 목록 없음', text)
+        self.assertNotIn('오류', text)
+        row = self.db.execute(
+            'SELECT n_auctions, n_commodities, n_priced FROM blizzard_snapshots WHERE house_id=115').fetchone()
+        self.assertEqual((row['n_auctions'], row['n_commodities'], row['n_priced']), (0, 0, 0))
+        self.assertEqual(self.db.execute("SELECT note FROM blizzard_checks").fetchone()[0], '저장')
+
+    def test_unpublished_side_does_not_store_a_partial_snapshot(self):
+        from blizzard_collector import ForeverAuctions
+        api = ForeverAuctions(self.cfg, sided_fixture([
+            (113, '호드', PRICED_AUCTIONS, dict(LINKS))]))
+        _chosen, text = self._capture(lambda: collect_once(
+            self.db, api, self.cfg, now='2026-11-13T00:00:00+00:00'))
+        self.assertIn('매물 목록 없음', text)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM blizzard_snapshots').fetchone()[0], 0)
+        self.assertEqual(self.db.execute('SELECT COUNT(*) FROM blizzard_item_prices').fetchone()[0], 0)
+
+    def test_non_list_auctions_still_fails_without_hiding_the_sibling(self):
+        from blizzard_collector import ForeverAuctions
+        api = ForeverAuctions(self.cfg, sided_fixture([
+            (113, '호드', {'auctions': {}}, {'auctions': []}),
+            (116, '검은바다', PRICED_AUCTIONS, {'auctions': []}),
+        ]))
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            with self.assertRaises(AppError) as caught:
+                collect_once(self.db, api, self.cfg, now='2026-11-13T00:00:00+00:00')
+        text = buf.getvalue()
+        self.assertIn('경매장 113: 오류 AppError', text)
+        self.assertNotIn('매물 목록 없음', text)
+        self.assertIn('113', str(caught.exception))
+        self.assertNotIn('116', str(caught.exception))
+        self.assertEqual([row[0] for row in self.db.execute('SELECT house_id FROM blizzard_snapshots')], [116])
+
+    def test_exhausted_403_skips_one_house_and_keeps_the_other(self):
+        from blizzard_collector import ForeverAuctions
+        saved = _swap_env(BNET_CLIENT_ID=FAKE_ID, BNET_CLIENT_SECRET=FAKE_SECRET)
+        try:
+            api = ForeverAuctions(self.cfg)
+            api.request_interval = 0
+            api.token = 'fixture-token'
+            api.expires = time.time() + 3600
+            calls = []
+
+            def fake(req, timeout=60):
+                url = req.full_url
+                calls.append(url)
+                if '/auctions/116' in url and '/commodities' not in url:
+                    raise _http_error(
+                        403, body=b'{"error":"BODY-MARKER","access_token":"fixture-token"}',
+                        headers={'X-Test': 'HEADER-MARKER'})
+                if '/auctions/index?' in url:
+                    return _JsonResponse({'auctions': [
+                        {'id': 116, 'name': '검은바다'}, {'id': 113, 'name': '호드'}]})
+                if '/auctions/113/commodities' in url:
+                    return _JsonResponse(PRICED_COMMODITIES)
+                if '/auctions/113?' in url or '/auctions/113' in url:
+                    return _JsonResponse(PRICED_AUCTIONS)
+                raise AssertionError(url.split('?', 1)[0])
+
+            buf = io.StringIO()
+            with patch('common.urlopen', side_effect=fake), patch('common.time.sleep') as sleep:
+                with redirect_stdout(buf):
+                    with self.assertRaises(AppError) as caught:
+                        collect_once(self.db, api, self.cfg, now='2026-11-13T00:00:00+00:00')
+            text = buf.getvalue()
+            message = str(caught.exception)
+            context = str(caught.exception.__context__ or '')
+            self.assertIn('116', message)
+            self.assertNotIn('113', message)
+            self.assertIn('보존했습니다', message)
+            self.assertIn('경매장 116: 오류 AppError', text)
+            self.assertIn('경매장 113', text)
+            for secret in (FAKE_ID, FAKE_SECRET, 'fixture-token', 'BODY-MARKER', 'HEADER-MARKER',
+                           'Authorization', 'Bearer'):
+                self.assertNotIn(secret, text)
+                self.assertNotIn(secret, message)
+                self.assertNotIn(secret, context)
+            failed = [url for url in calls if '/auctions/116' in url and '/commodities' not in url]
+            self.assertEqual(len(failed), HTTP_ATTEMPTS)
+            self.assertEqual(sleep.call_count, HTTP_ATTEMPTS - 1)
+            self.assertEqual([row[0] for row in self.db.execute(
+                'SELECT house_id FROM blizzard_snapshots')], [113])
+            self.assertEqual(self.db.execute('''SELECT min_unit_price FROM blizzard_item_prices p
+                JOIN blizzard_snapshots s ON s.id=p.snapshot_id
+                WHERE s.house_id=113 AND p.item_id=8''').fetchone()[0], 100)
+            blob = b''.join(path.read_bytes() for path in (
+                self.root / 'test.db', Path(str(self.root / 'test.db') + '-wal'),
+                Path(str(self.root / 'test.db') + '-shm')) if path.exists())
+            self.assertNotIn(FAKE_SECRET.encode(), blob)
+            self.assertNotIn(b'fixture-token', blob)
+            self.assertNotIn(b'BODY-MARKER', blob)
+        finally:
+            _restore_env(saved)
+
+    def test_fixture_get_does_not_sleep_and_live_get_paces(self):
+        from blizzard_collector import ForeverAuctions
+        api = ForeverAuctions(self.cfg, sided_fixture([
+            (113, '호드', {'auctions': []}, {'auctions': []})]))
+        self.assertEqual(api.request_interval, 0)
+        with patch('blizzard_collector.time.sleep') as slept:
+            api.get(INDEX)
+            api.get('/data/wow/ruleset/1/auctions/113')
+        self.assertEqual(slept.call_count, 0)
+        saved = _swap_env(BNET_CLIENT_ID=FAKE_ID, BNET_CLIENT_SECRET=FAKE_SECRET)
+        try:
+            live = ForeverAuctions(self.cfg)
+            live.token = 'fixture-token'
+            live.expires = time.time() + 3600
+            self.assertEqual(live.request_interval, 0.1)
+            with patch('blizzard_collector.http_json', return_value=({'auctions': []}, 'lm')), \
+                    patch('blizzard_collector.time.monotonic', side_effect=[10.0, 10.0, 10.1]), \
+                    patch('blizzard_collector.time.sleep') as slept:
+                live.get(INDEX)
+                live.get('/data/wow/ruleset/1/auctions/113')
+            self.assertEqual(slept.call_count, 1)
+            self.assertEqual(slept.call_args.args[0], 0.1)
+            live.request_interval = 0
+            with patch('blizzard_collector.http_json', return_value=({'auctions': []}, None)), \
+                    patch('blizzard_collector.time.sleep') as slept:
+                live.get(INDEX)
+            self.assertEqual(slept.call_count, 0)
+        finally:
+            _restore_env(saved)
 
 
 if __name__ == '__main__':
