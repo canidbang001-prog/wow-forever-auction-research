@@ -20,6 +20,17 @@ Python 3 · SQLite · 한국어 리포트 · 읽기 전용 수집
 
 > **실제 인증 API 연결 검증.** ForeverDB 아이템 목록, 전문기술 재료·결과물, NPC 판매 목록을 수집합니다. 공급자 목록 완주와 게임의 모든 관계 확인은 다릅니다. 퀘스트 요구 아이템·일부 구매 조건은 API에서 제공되지 않으며, Auctionator 최저가만으로 수익이나 판매량을 확정하지 않습니다.
 
+## 공식 API만으로 시세 추이·시장 간 가격차 관찰
+
+Auctionator 파일 없이 시간당 Blizzard Forever API DB만 읽으려면 새 관측 보고서를 사용합니다. 개인 시장 확인이나 기존 매매 추천 조건을 바꾸지 않으며, commodity 매물만 시장 ID별로 비교합니다.
+
+```bash
+python api_market_observer.py --config config.forever.json --houses 113,114 --format html --output reports/api-market.html
+# JSON은 --format json (기본값), --output 생략 시 stdout
+```
+
+원본 갱신·수집 시각, 최저가 수량과 전체 수량, 반복 가격차의 실제 근거를 표시합니다. 실제 거래량·판매확률·확정 수익은 추정하지 않습니다. [API 관측 사용법·제한](API_OBSERVER.md)을 참고하세요.
+
 ## 한국 PvP 시장 화면
 
 `reports/market.html`에서 실제 가격을 검색하고 제작 원가·NPC 판매처·가정 마진을 비교할 수 있습니다. 아이템을 누르면 가격 기록과 구매 조건이 열립니다. 가격이 없는 품목도 목록에 보관합니다. 판매량과 7일/30일 가중 중위가는 현재 파일에서 제공되지 않아 미확인으로 표시합니다.
