@@ -11,6 +11,7 @@ import sqlite3
 import tempfile
 
 from blizzard_collector import forever_settings, median_lower, select_houses
+from auction_house_display import house_label
 from common import AppError, ROOT, config_path, get_meta, load_config, main_guard, parse_time, parser
 
 
@@ -176,7 +177,13 @@ def build_observations(db, cfg, now=None, house_ids=None, limit=30, max_age_hour
         FROM blizzard_houses WHERE ruleset=? ORDER BY house_id''', (settings['ruleset'],))]
     if any(type(house['id']) is not int or house['id'] <= 0 for house in known):
         raise AppError('DB house_id는 양의 정수여야 합니다.')
-    selected = select_houses(known, house_ids or settings['house_ids'], settings['include_alliance'])
+    requested = house_ids or settings['house_ids']
+    known_ids = {house['id'] for house in known}
+    missing = [ident for ident in requested or [] if ident not in known_ids]
+    if missing:
+        raise AppError('설정한 경매장 ID가 색인에 없습니다: ' +
+                       ','.join(house_label(ident, str(ident)) for ident in missing))
+    selected = select_houses(known, requested, settings['include_alliance'])
     selected.sort(key=lambda house: house['id'])
     houses, histories = [], {}
     for house in selected:
@@ -301,7 +308,8 @@ def render(data):
         messages = ', '.join(h['reasons']) or '시각·신선도 확인'
         if coverage['truncated']:
             messages += ' · history_truncated (일부 이력만 분석)'
-        parts.append(f'<section class="card"><h3>#{e(h["house_id"])} {e(h["name"])}</h3>'
+        label = house_label(h['house_id'], f'#{h["house_id"]} {h["name"]}')
+        parts.append(f'<section class="card"><h3>{e(label)}</h3>'
                      f'<p>{e(h["side"])} · 접근 미확인<br><span class="{"bad" if h["status"] == "blocked" else "ok"}">{e(h["status"])}</span>: {e(messages)}</p>'
                      f'<p>수집 {e(local(h["fetched_epoch"]) if latest else "없음")}<br>상품 원본 {e(local(h["source_epoch"]))}<br>'
                      f'누적 스냅샷 {coverage["snapshots_total"]} · 창 안 독립 갱신 {coverage["distinct_updates"]}<br>'
@@ -312,7 +320,7 @@ def render(data):
         parts.append('<p>조건을 통과한 가격차가 없습니다. 아래 시각차·시장 상태를 확인하세요.</p>')
     for c in data['comparisons']:
         a, b, proof = c['source_quote'], c['target_quote'], c['evidence']
-        parts.append(f'<article><h3>{e(c["name"])} <small>item#{e(c["item_id"])} · #{e(c["lower_quote_house"])} → #{e(c["higher_quote_house"])}</small></h3>'
+        parts.append(f'<article><h3>{e(c["name"])} <small>item#{e(c["item_id"])} · {e(house_label(c["lower_quote_house"]))} → {e(house_label(c["higher_quote_house"]))}</small></h3>'
                      f'<p><b>{gold(a["min_unit_price"])} → {gold(b["min_unit_price"])}</b> · 개당 원시 호가차 {gold(c["gap_copper"])} ({c["gap_bps"] / 100:.2f}%)</p>'
                      f'<p>낮은 시장: 최저가 수량 {a["qty_at_min"]} / 총 {a["total_qty"]}개 · 높은 시장: 최저가 수량 {b["qty_at_min"]} / 총 {b["total_qty"]}개</p>'
                      f'<p>{e(c["status"])} · 정합 표본 {proof["paired_observations"]}회 / 현재 방향 양수 {proof["positive_pairs"]}회 / 말미 연속 {proof["consecutive_positive_pairs"]}회 · {proof["distinct_days"]}일 · {e(proof["history_readiness"])}</p>')
