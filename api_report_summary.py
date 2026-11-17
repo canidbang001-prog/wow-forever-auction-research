@@ -3,6 +3,8 @@ import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 
+from auction_house_display import house_label
+
 
 def render_summary(report):
     """Plain text only; generation never attempts or acknowledges a delivery."""
@@ -32,7 +34,7 @@ def render_summary(report):
             except (OSError, OverflowError, ValueError, TypeError):
                 pass
         reason = ','.join(house['reasons']) or house['status']
-        lines.append(f"시장 #{house['house_id']} · 원본 {stamp} · {reason}")
+        lines.append(f"시장 {house_label(house['house_id'])} · 원본 {stamp} · {reason}")
     if len(report['houses']) > 8:
         lines.append(f"추가 시장 {len(report['houses']) - 8}개는 HTML 보고서에 표시합니다.")
     lines.append('반복 관측 표시는 독립 원본 갱신의 근거이며 체결 정보가 아닙니다.')
@@ -43,8 +45,8 @@ def render_summary(report):
         name = row.get('name_ko') or f"item#{row['item_id']}"
         status = '반복 관측' if row['status'] == 'repeated_gap' else '일반 관측'
         line = (f"{name} (item#{row['item_id']}) · {status}\n"
-                f"#{row['lower_quote_house']} {gold(low['min_unit_price'])} · 최저가 수량 {low['qty_at_min']} / 총 {low['total_qty']}\n"
-                f"#{row['higher_quote_house']} {gold(high['min_unit_price'])} · 최저가 수량 {high['qty_at_min']} / 총 {high['total_qty']}\n"
+                f"{house_label(row['lower_quote_house'])} {gold(low['min_unit_price'])} · 최저가 수량 {low['qty_at_min']} / 총 {low['total_qty']}\n"
+                f"{house_label(row['higher_quote_house'])} {gold(high['min_unit_price'])} · 최저가 수량 {high['qty_at_min']} / 총 {high['total_qty']}\n"
                 f"개당 원시 호가차 {gold(row['gap_copper'])}")
         if len('\n\n'.join(lines + [line])) > 3500:
             break
